@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Site Index Calculator — Woody Forestry</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --forest: #0f2318;
+      --forest2: #1a3a2a;
+      --moss: #2d5a3d;
+      --leaf: #4a8c5c;
+      --lime: #8bc34a;
+      --bark: #2a1a0f;
+      --bark2: #3d2b1f;
+      --cream: #f5f0e8;
+      --sand: #e8dfc8;
+    }
+
+    body {
+      font-family: 'Space Mono', monospace;
+      background: var(--forest);
+      color: var(--cream);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      height: 54px;
+      background: var(--bark2);
+      border-bottom: 2px solid var(--lime);
+      flex-shrink: 0;
+    }
+
+    .logo {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 1.2rem;
+      letter-spacing: -0.5px;
+      color: var(--lime);
+      text-decoration: none;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+    }
+
+    .card {
+      width: min(720px, 100%);
+      background: var(--forest2);
+      border: 1px solid var(--leaf);
+      overflow: hidden;
+    }
+
+    .head {
+      padding: 22px 28px 18px;
+      border-bottom: 1px solid var(--leaf);
+    }
+
+    .head h1 {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 1.35rem;
+      letter-spacing: -0.5px;
+      color: var(--lime);
+      line-height: 1.2;
+    }
+
+    .head p {
+      margin: 8px 0 0;
+      font-size: 0.78rem;
+      color: var(--sand);
+      opacity: 0.8;
+      letter-spacing: 0.5px;
+    }
+
+    .body {
+      padding: 24px 28px 28px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    @media (min-width: 640px) {
+      .row { grid-template-columns: 1fr 1fr; }
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 0.72rem;
+      color: var(--sand);
+      opacity: 0.85;
+      letter-spacing: 0.5px;
+    }
+
+    input {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid var(--leaf);
+      background: var(--forest);
+      color: var(--cream);
+      font-family: 'Space Mono', monospace;
+      font-size: 0.95rem;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--lime);
+      box-shadow: 0 0 0 2px rgba(139, 195, 74, 0.15);
+    }
+
+    .result {
+      border: 1px solid var(--leaf);
+      padding: 16px;
+      background: var(--forest);
+      display: grid;
+      gap: 10px;
+      font-size: 0.72rem;
+      color: var(--sand);
+      letter-spacing: 0.5px;
+    }
+
+    .value {
+      font-family: 'Syne', sans-serif;
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--lime);
+      letter-spacing: -0.5px;
+    }
+
+    .formula {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--cream);
+      background: var(--forest2);
+      border: 1px solid var(--leaf);
+      padding: 10px;
+      overflow-x: auto;
+    }
+
+    .note {
+      margin: 0;
+      font-size: 0.72rem;
+      color: var(--sand);
+      opacity: 0.7;
+    }
+
+    .error {
+      color: #e07070;
+      font-size: 0.78rem;
+      min-height: 1.1rem;
+    }
+
+    @media (max-width: 600px) {
+      main { padding: 28px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="index.html">WoodyForestry</a>
+</header>
+
+<main>
+  <div class="card">
+    <section class="head">
+      <h1>Loblolly Pine Site Index Calculator</h1>
+      <p>Clutter and Lenhart (1968), base age 25 years</p>
+    </section>
+
+    <section class="body">
+      <div class="row">
+        <label>
+          Current Age (years, minimum 8)
+          <input id="age" type="number" min="8" step="0.1" value="22" />
+        </label>
+
+        <label>
+          Current Dominant Height (feet, minimum 1)
+          <input id="height" type="number" min="1" step="0.1" value="67" />
+        </label>
+      </div>
+
+      <div class="result">
+        <div>Site Index (base age 25):</div>
+        <div id="siteIndex" class="value">--</div>
+        <div class="formula">SI = 147.22 / (1 - (1 - 147.22 / Hdom) * (Age / 25)^1.16)</div>
+        <p class="note">Workbook sample check: Age 22, Hdom 67 gives approximately 72.4.</p>
+      </div>
+
+      <div id="error" class="error"></div>
+    </section>
+  </div>
+</main>
+
+  <script>
+    const ageInput = document.getElementById('age');
+    const heightInput = document.getElementById('height');
+    const siteIndexOutput = document.getElementById('siteIndex');
+    const errorOutput = document.getElementById('error');
+
+    const M = 147.22;
+    const BASE_AGE = 25;
+    const EXPONENT = 1.16;
+
+    function calculate() {
+      const age = parseFloat(ageInput.value);
+      const hdom = parseFloat(heightInput.value);
+
+      if (!Number.isFinite(age) || !Number.isFinite(hdom)) {
+        siteIndexOutput.textContent = '--';
+        errorOutput.textContent = 'Enter both age and dominant height.';
+        return;
+      }
+
+      if (age < 8) {
+        siteIndexOutput.textContent = '--';
+        errorOutput.textContent = 'Age must be 8 or greater.';
+        return;
+      }
+
+      if (hdom < 1) {
+        siteIndexOutput.textContent = '--';
+        errorOutput.textContent = 'Dominant height must be 1 foot or greater.';
+        return;
+      }
+
+      const denom = 1 - (1 - M / hdom) * Math.pow(age / BASE_AGE, EXPONENT);
+      if (denom === 0) {
+        siteIndexOutput.textContent = '--';
+        errorOutput.textContent = 'Calculation is undefined for this input set.';
+        return;
+      }
+
+      const si = M / denom;
+      siteIndexOutput.textContent = si.toFixed(1);
+      errorOutput.textContent = '';
+    }
+
+    ageInput.addEventListener('input', calculate);
+    heightInput.addEventListener('input', calculate);
+    calculate();
+  </script>
+</body>
+</html>
