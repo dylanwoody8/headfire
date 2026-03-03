@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>TimberCruise</title>
+<title>Headfire — Timber Cruising</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -13,7 +13,7 @@
 body{font-family:'IBM Plex Sans',sans-serif;background:var(--forest);color:var(--text);height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 header{background:var(--forest);border-bottom:2px solid var(--pine);padding:0 16px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;z-index:1000}
 .logo{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:3px;color:var(--accent)}.logo span{color:var(--amber)}
-.cruise-label{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);text-align:right;line-height:1.3}
+.cruise-label{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);text-align:right;line-height:1.3}.back-link{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);text-decoration:none}.back-link:hover{color:var(--accent)}
 nav{display:flex;background:var(--forest);border-top:2px solid var(--pine);flex-shrink:0}
 nav button{flex:1;padding:10px 4px;border:none;background:transparent;color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;transition:color .2s}
 nav button.active{color:var(--accent)}nav button svg{width:20px;height:20px}
@@ -111,7 +111,8 @@ input[readonly]{border-color:var(--amber);color:var(--amber)}
 <body>
 
 <header>
-  <div class="logo">Timber<span>Cruise</span></div>
+  <a class="back-link" href="index.html">← Home</a>
+  <div class="logo">Head<span>fire</span></div>
   <div class="cruise-label" id="headerLabel">No cruise loaded</div>
 </header>
 
