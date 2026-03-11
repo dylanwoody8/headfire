@@ -821,6 +821,94 @@
   }
   .unit-toggle:active { background: var(--bg-elevated); }
 
+  /* ═══ CROSSHAIR DRAW MODE ═══ */
+  #crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 999;
+    pointer-events: none;
+    display: none;
+  }
+  #crosshair.active { display: block; }
+
+  #draw-controls {
+    position: absolute;
+    bottom: 80px;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+  }
+  #draw-controls.active { display: flex; }
+
+  .draw-point-count {
+    background: var(--bg-deep);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 4px 14px;
+    font-size: 0.6rem;
+    color: var(--accent);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .draw-btn-row {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .draw-btn {
+    flex: 1;
+    padding: 14px 8px;
+    border-radius: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    border: 1px solid;
+    text-align: center;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .draw-btn:active { transform: scale(0.97); }
+  .draw-btn-drop {
+    flex: 2;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-deep);
+    font-size: 0.8rem;
+    box-shadow: 0 4px 16px rgba(106,191,75,0.3);
+  }
+  .draw-btn-undo {
+    background: var(--bg-card);
+    border-color: var(--border-bright);
+    color: var(--text-secondary);
+  }
+  .draw-btn-finish {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+  .draw-btn-finish:disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+  .draw-btn-cancel {
+    background: transparent;
+    border-color: var(--red);
+    color: var(--red);
+  }
+
   /* Confirmation overlay */
   .confirm-overlay {
     position: fixed;
@@ -909,7 +997,32 @@
   </div>
 
   <!-- Drawing Hint -->
-  <div class="draw-hint" id="draw-hint">Tap points to draw boundary. Tap first point to close.</div>
+  <div class="draw-hint" id="draw-hint">Pan map to position crosshair, then tap Drop Point.</div>
+
+  <!-- Crosshair -->
+  <div id="crosshair">
+    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="32" y1="2" x2="32" y2="24" stroke="white" stroke-width="2.5" stroke-opacity="0.95"/>
+      <line x1="32" y1="40" x2="32" y2="62" stroke="white" stroke-width="2.5" stroke-opacity="0.95"/>
+      <line x1="2" y1="32" x2="24" y2="32" stroke="white" stroke-width="2.5" stroke-opacity="0.95"/>
+      <line x1="40" y1="32" x2="62" y2="32" stroke="white" stroke-width="2.5" stroke-opacity="0.95"/>
+      <circle cx="32" cy="32" r="5" fill="#6abf4b" stroke="rgba(0,0,0,0.6)" stroke-width="1.5"/>
+      <circle cx="32" cy="32" r="2" fill="white"/>
+    </svg>
+  </div>
+
+  <!-- Draw Controls -->
+  <div id="draw-controls">
+    <div class="draw-point-count" id="draw-point-count">0 points — need 3 to finish</div>
+    <div class="draw-btn-row">
+      <button class="draw-btn draw-btn-undo" onclick="undoDrawPoint()">↩ Undo</button>
+      <button class="draw-btn draw-btn-drop" onclick="dropDrawPoint()">+ Drop Point</button>
+      <button class="draw-btn draw-btn-finish" id="draw-finish-btn" onclick="finishDraw()" disabled>✓ Finish</button>
+    </div>
+    <div class="draw-btn-row">
+      <button class="draw-btn draw-btn-cancel" onclick="cancelDraw()">✕ Cancel</button>
+    </div>
+  </div>
 
   <!-- Navigation HUD -->
   <div class="nav-hud" id="nav-hud">
@@ -1178,23 +1291,116 @@ function closePanel() {
   currentPanel = null;
 }
 
-// ── Draw boundary ──
+// ── Draw boundary (crosshair mode) ──
+let drawPoints = [];
+let drawPreviewLayer = null;
+let drawVertexMarkers = [];
+
 function startDrawBoundary() {
   if (isDrawing) {
     cancelDraw();
     return;
   }
   isDrawing = true;
+  drawPoints = [];
+  drawVertexMarkers = [];
   document.getElementById('nav-btn-boundary').classList.add('active');
   document.getElementById('draw-hint').classList.add('show');
+  document.getElementById('crosshair').classList.add('active');
+  document.getElementById('draw-controls').classList.add('active');
+  updateDrawUI();
+}
 
-  currentDrawer = new L.Draw.Polygon(map, {
-    shapeOptions: { color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4 }
+function dropDrawPoint() {
+  const center = map.getCenter();
+  drawPoints.push(L.latLng(center.lat, center.lng));
+
+  // Small vertex dot at the dropped point
+  const dot = L.circleMarker([center.lat, center.lng], {
+    radius: 5,
+    color: '#fff',
+    fillColor: '#e53935',
+    fillOpacity: 1,
+    weight: 2,
+    interactive: false
+  }).addTo(map);
+  drawVertexMarkers.push(dot);
+
+  updateDrawPreview();
+  updateDrawUI();
+  vibrate([30]);
+}
+
+function undoDrawPoint() {
+  if (drawPoints.length === 0) return;
+  drawPoints.pop();
+  const dot = drawVertexMarkers.pop();
+  if (dot) map.removeLayer(dot);
+  updateDrawPreview();
+  updateDrawUI();
+  vibrate([20]);
+}
+
+function updateDrawPreview() {
+  if (drawPreviewLayer) {
+    map.removeLayer(drawPreviewLayer);
+    drawPreviewLayer = null;
+  }
+  if (drawPoints.length < 2) return;
+  const pts = drawPoints.length >= 3
+    ? [...drawPoints, drawPoints[0]]
+    : drawPoints;
+  drawPreviewLayer = L.polyline(pts, {
+    color: '#e53935',
+    weight: 3,
+    opacity: 0.9,
+    dashArray: '8 5',
+    interactive: false
+  }).addTo(map);
+}
+
+function updateDrawUI() {
+  const n = drawPoints.length;
+  const countEl = document.getElementById('draw-point-count');
+  if (n < 3) {
+    countEl.textContent = n + (n === 1 ? ' point' : ' points') + ' — need ' + (3 - n) + ' more';
+  } else {
+    countEl.textContent = n + ' points — ready to finish';
+  }
+  const finishBtn = document.getElementById('draw-finish-btn');
+  finishBtn.disabled = n < 3;
+}
+
+function finishDraw() {
+  if (drawPoints.length < 3) { toast('Need at least 3 points'); return; }
+
+  const polygon = L.polygon(drawPoints, {
+    color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4
   });
-  currentDrawer.enable();
+
+  tractBoundary = polygon;
+  tractLayer.addLayer(polygon);
+
+  const acres = calcAcres(polygon);
+  polygon.bindPopup('<div class="plot-popup"><div class="plot-popup-title">Drawn Boundary</div><div class="plot-popup-info">' + acres.toFixed(2) + ' acres</div></div>');
+
+  allPolygons.push({ layer: polygon, name: 'Drawn boundary (' + acres.toFixed(1) + ' ac)' });
+  refreshPolyChecklist();
+  updateTractInfo();
+  updateEmptyHint();
+  toast('Boundary drawn: ' + acres.toFixed(1) + ' ac');
+  saveSession();
+  cancelDraw();
 }
 
 function cancelDraw() {
+  if (drawPreviewLayer) {
+    map.removeLayer(drawPreviewLayer);
+    drawPreviewLayer = null;
+  }
+  drawVertexMarkers.forEach(d => map.removeLayer(d));
+  drawVertexMarkers = [];
+  drawPoints = [];
   if (currentDrawer) {
     currentDrawer.disable();
     currentDrawer = null;
@@ -1202,6 +1408,8 @@ function cancelDraw() {
   isDrawing = false;
   document.getElementById('nav-btn-boundary').classList.remove('active');
   document.getElementById('draw-hint').classList.remove('show');
+  document.getElementById('crosshair').classList.remove('active');
+  document.getElementById('draw-controls').classList.remove('active');
 }
 
 map.on(L.Draw.Event.CREATED, function(e) {
