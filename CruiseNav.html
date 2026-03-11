@@ -1,0 +1,2277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1a2e1a">
+<meta name="description" content="Timber cruising field app for foresters. Draw tract boundaries, place plots, navigate, and track completion.">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+<title>CruiseNav - Timber Cruise Field App</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-deep: #0d1a0d;
+    --bg-main: #1a2e1a;
+    --bg-card: #1e3520;
+    --bg-elevated: #254228;
+    --border: #2d5a3d;
+    --border-bright: #3d7a50;
+    --accent: #6abf4b;
+    --accent-glow: #8cd970;
+    --accent-dim: #4a8f3a;
+    --text-primary: #e8f0e4;
+    --text-secondary: #a0b89a;
+    --text-muted: #6d8a66;
+    --red: #e74c3c;
+    --red-bg: #3a1a1a;
+    --orange: #f39c12;
+    --orange-bg: #3a2a10;
+    --blue: #3498db;
+    --blue-bg: #1a2a3a;
+    --plot-pending: #f39c12;
+    --plot-complete: #6abf4b;
+    --plot-active: #3498db;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    height: 100dvh;
+  }
+
+  /* ═══ TOP BAR ═══ */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 48px;
+    padding: 0 12px;
+    background: var(--bg-deep);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    z-index: 1000;
+    gap: 8px;
+  }
+
+  .app-title {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+    white-space: nowrap;
+  }
+  .app-title small {
+    font-weight: 500;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    margin-left: 6px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .topbar-stats {
+    display: flex;
+    gap: 12px;
+    font-size: 0.6rem;
+    color: var(--text-secondary);
+    letter-spacing: 0.3px;
+  }
+  .topbar-stats .val { color: var(--accent); font-weight: 700; }
+
+  .topbar-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .icon-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .icon-btn:active { background: var(--bg-elevated); transform: scale(0.95); }
+  .icon-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent-glow); }
+  .icon-btn svg { width: 18px; height: 18px; }
+
+  /* ═══ MAP ═══ */
+  #map {
+    flex: 1;
+    width: 100%;
+    z-index: 1;
+  }
+
+  /* Hide leaflet draw toolbar, we use our own UI */
+  .leaflet-draw-toolbar { display: none !important; }
+  .leaflet-draw-actions { display: none !important; }
+  .leaflet-draw-actions.leaflet-draw-actions-top { display: flex !important; }
+
+  /* ═══ PLOT INFO POPUP ═══ */
+  .plot-popup {
+    background: var(--bg-deep);
+    border: 1px solid var(--border-bright);
+    border-radius: 12px;
+    padding: 14px;
+    min-width: 200px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .plot-popup-title {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 800;
+    font-size: 0.9rem;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .plot-popup-info {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    line-height: 1.6;
+  }
+  .plot-popup-actions {
+    display: flex;
+    gap: 6px;
+  }
+  .popup-btn {
+    flex: 1;
+    padding: 10px 8px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    border: 1px solid;
+    text-align: center;
+    transition: all 0.15s;
+  }
+  .popup-btn:active { transform: scale(0.97); }
+  .popup-btn-complete {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-deep);
+  }
+  .popup-btn-pending {
+    background: var(--orange);
+    border-color: var(--orange);
+    color: var(--bg-deep);
+  }
+  .popup-btn-nav {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+  .popup-btn-delete {
+    background: transparent;
+    border-color: var(--red);
+    color: var(--red);
+  }
+
+  /* Override Leaflet popup styles */
+  .leaflet-popup-content-wrapper {
+    background: transparent !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+  }
+  .leaflet-popup-content { margin: 0 !important; }
+  .leaflet-popup-tip { background: var(--bg-deep) !important; border: 1px solid var(--border-bright) !important; }
+  .leaflet-popup-close-button { color: var(--text-muted) !important; font-size: 20px !important; top: 6px !important; right: 8px !important; }
+
+  /* ═══ BOTTOM NAV ═══ */
+  .bottom-nav {
+    display: flex;
+    background: var(--bg-deep);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    padding-bottom: var(--safe-bottom);
+    z-index: 1000;
+  }
+
+  .nav-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    flex: 1;
+    padding: 8px 2px 10px;
+    background: none;
+    border: none;
+    border-top: 2px solid transparent;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.5rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .nav-btn svg { width: 22px; height: 22px; stroke: currentColor; }
+  .nav-btn.active {
+    color: var(--accent);
+    border-top-color: var(--accent);
+    background: rgba(106, 191, 75, 0.06);
+  }
+  .nav-btn.nav-locate { color: var(--blue); }
+  .nav-btn.nav-locate.active { color: #fff; background: rgba(52,152,219,0.15); border-top-color: var(--blue); }
+  .nav-btn:active { transform: scale(0.95); }
+
+  /* ═══ PANELS (Slide-up) ═══ */
+  .panel-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 2000;
+    display: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .panel-overlay.open { display: block; opacity: 1; }
+
+  .panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--bg-main);
+    border-top: 2px solid var(--accent);
+    border-radius: 16px 16px 0 0;
+    z-index: 2001;
+    padding: 20px 16px;
+    padding-bottom: calc(20px + var(--safe-bottom));
+    transform: translateY(100%);
+    transition: transform 0.25s ease;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .panel.open { transform: translateY(0); }
+
+  .panel-handle {
+    width: 40px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 0 auto 16px;
+  }
+
+  .panel-title {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 800;
+    font-size: 0.85rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+  }
+
+  /* ═══ FORM ELEMENTS ═══ */
+  .field-group { margin-bottom: 14px; }
+  .field-label {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .field-input {
+    width: 100%;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    padding: 10px 12px;
+    transition: border-color 0.15s;
+  }
+  .field-input:focus { outline: none; border-color: var(--accent); }
+
+  .field-row { display: flex; gap: 10px; }
+  .field-row .field-group { flex: 1; }
+
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    border: 1px solid;
+    transition: all 0.15s;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--bg-deep); }
+  .btn-secondary { background: transparent; border-color: var(--border-bright); color: var(--text-secondary); }
+  .btn-danger { background: transparent; border-color: var(--red); color: var(--red); }
+  .btn-nav { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn + .btn { margin-top: 8px; }
+
+  /* ═══ PLOT LIST ═══ */
+  .plot-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 40vh;
+    overflow-y: auto;
+    margin-bottom: 14px;
+  }
+  .plot-list-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .plot-list-item:active { background: var(--bg-elevated); }
+  .plot-list-item.completed { border-color: var(--accent-dim); }
+  .plot-list-item.active-nav { border-color: var(--blue); background: var(--blue-bg); }
+
+  .plot-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+  .plot-dot.pending { background: var(--orange); color: var(--bg-deep); }
+  .plot-dot.complete { background: var(--accent); color: var(--bg-deep); }
+  .plot-dot.navigating { background: var(--blue); color: #fff; animation: pulse-dot 1.5s ease infinite; }
+
+  @keyframes pulse-dot {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(52,152,219,0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(52,152,219,0); }
+  }
+
+  .plot-list-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .plot-list-name {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+  .plot-list-meta {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .plot-list-dist {
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  /* ═══ NAVIGATION HUD ═══ */
+  .nav-hud {
+    position: absolute;
+    top: 56px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 999;
+    background: var(--bg-deep);
+    border: 1px solid var(--blue);
+    border-radius: 12px;
+    padding: 10px 20px;
+    display: none;
+    align-items: center;
+    gap: 14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  .nav-hud.open { display: flex; }
+
+  .nav-hud-compass {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 2px solid var(--blue);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .nav-hud-arrow {
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-bottom: 20px solid var(--blue);
+    transition: transform 0.3s ease;
+  }
+
+  .nav-hud-info { text-align: center; }
+  .nav-hud-dist {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 800;
+    font-size: 1.2rem;
+    color: var(--blue);
+  }
+  .nav-hud-label {
+    font-size: 0.5rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .nav-hud-plot {
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+  }
+
+  .nav-hud-close {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--red);
+    border: none;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    font-size: 14px;
+  }
+
+  /* ═══ PROGRESS BAR ═══ */
+  .progress-strip {
+    position: absolute;
+    top: 48px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--bg-deep);
+    z-index: 999;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-dim), var(--accent-glow));
+    transition: width 0.4s ease;
+    width: 0%;
+  }
+
+  /* ═══ TOAST ═══ */
+  .toast {
+    position: fixed;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--bg-deep);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 10px 20px;
+    border-radius: 10px;
+    opacity: 0;
+    transition: all 0.3s;
+    pointer-events: none;
+    z-index: 9999;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ═══ TRACT INFO BAR ═══ */
+  .tract-info-bar {
+    position: absolute;
+    bottom: 70px;
+    left: 10px;
+    right: 10px;
+    z-index: 998;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    display: none;
+    gap: 12px;
+    font-size: 0.6rem;
+  }
+  .tract-info-bar.show { display: flex; flex-wrap: wrap; }
+  .tract-stat { display: flex; flex-direction: column; align-items: center; }
+  .tract-stat-val { font-weight: 800; font-size: 0.85rem; color: var(--accent); }
+  .tract-stat-label { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.48rem; }
+
+  /* ═══ EMPTY STATE ═══ */
+  .empty-hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 998;
+    text-align: center;
+    pointer-events: none;
+  }
+  .empty-hint-icon { font-size: 2.5rem; margin-bottom: 8px; opacity: 0.3; }
+  .empty-hint-text {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    opacity: 0.5;
+  }
+
+  /* Desktop tweaks */
+  @media (min-width: 769px) {
+    .topbar { height: 52px; padding: 0 20px; }
+    .topbar-stats { display: flex; }
+    .bottom-nav { max-width: 500px; margin: 0 auto; border-radius: 12px 12px 0 0; }
+  }
+
+  @media (max-width: 768px) {
+    .topbar-stats { display: none; }
+  }
+
+  /* Leaflet custom marker styles */
+  .cruise-plot-marker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 800;
+    font-size: 10px;
+    line-height: 1;
+    border: 2.5px solid #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+  .cruise-plot-marker.pending {
+    background: var(--plot-pending);
+    color: #000;
+  }
+  .cruise-plot-marker.complete {
+    background: var(--plot-complete);
+    color: #000;
+  }
+  .cruise-plot-marker.navigating {
+    background: var(--plot-active);
+    color: #fff;
+    animation: pulse-marker 1.5s ease infinite;
+    border-color: #fff;
+  }
+  @keyframes pulse-marker {
+    0%, 100% { box-shadow: 0 2px 8px rgba(0,0,0,0.5), 0 0 0 0 rgba(52,152,219,0.4); }
+    50% { box-shadow: 0 2px 8px rgba(0,0,0,0.5), 0 0 0 12px rgba(52,152,219,0); }
+  }
+
+  /* Location marker */
+  .my-location-marker {
+    width: 16px;
+    height: 16px;
+    background: var(--blue);
+    border: 3px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 3px rgba(52,152,219,0.3), 0 2px 8px rgba(0,0,0,0.4);
+  }
+
+  /* Nav line */
+  .nav-line { stroke-dasharray: 8 8; animation: dash-flow 1s linear infinite; }
+  @keyframes dash-flow { to { stroke-dashoffset: -16; } }
+
+  /* ═══ TRACT DRAWING HINT ═══ */
+  .draw-hint {
+    position: absolute;
+    top: 56px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 999;
+    background: var(--bg-deep);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 8px 16px;
+    font-size: 0.6rem;
+    color: var(--accent);
+    font-weight: 600;
+    display: none;
+    text-align: center;
+    white-space: nowrap;
+    letter-spacing: 0.3px;
+  }
+  .draw-hint.show { display: block; }
+
+  .settings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .settings-card {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s;
+  }
+  .settings-card:active { background: var(--bg-elevated); }
+  .settings-card svg { width: 24px; height: 24px; stroke: var(--accent); margin-bottom: 6px; }
+  .settings-card-label { font-size: 0.55rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Polygon checklist */
+  .poly-checklist {
+    max-height: 150px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 14px;
+  }
+  .poly-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.65rem;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .poly-check input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; flex-shrink: 0; }
+  .poly-check-empty {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 10px 0;
+    text-align: center;
+  }
+  .poly-check-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .poly-check-actions button {
+    flex: 1;
+    padding: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.5rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+  }
+  .poly-check-actions button:active { background: var(--bg-elevated); }
+
+  /* Loading screen */
+  .loading-screen {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-deep);
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    transition: opacity 0.4s;
+  }
+  .loading-screen.hidden { opacity: 0; pointer-events: none; }
+  .loading-title {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 800;
+    font-size: 1.6rem;
+    color: var(--accent);
+  }
+  .loading-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-sub {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* Undo toast */
+  .toast-undo {
+    position: fixed;
+    bottom: 90px;
+    left: 12px;
+    right: 12px;
+    background: var(--bg-deep);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 10px 14px;
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 9999;
+    gap: 10px;
+  }
+  .toast-undo.show { display: flex; }
+  .toast-undo-text {
+    font-size: 0.6rem;
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+  .toast-undo-btn {
+    padding: 6px 14px;
+    background: var(--accent);
+    border: none;
+    border-radius: 6px;
+    color: var(--bg-deep);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  /* Wake lock indicator */
+  .wake-indicator {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.45rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 700;
+  }
+  .wake-indicator.on { display: flex; }
+  .wake-dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse-dot 2s ease infinite;
+  }
+
+  /* Distance unit toggle in topbar */
+  .unit-toggle {
+    padding: 4px 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.5rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+  .unit-toggle:active { background: var(--bg-elevated); }
+
+  /* Confirmation overlay */
+  .confirm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 5000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .confirm-overlay.open { display: flex; }
+  .confirm-box {
+    background: var(--bg-main);
+    border: 1px solid var(--border-bright);
+    border-radius: 14px;
+    padding: 24px 20px;
+    max-width: 300px;
+    width: 100%;
+    text-align: center;
+  }
+  .confirm-msg {
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    margin-bottom: 18px;
+    line-height: 1.5;
+  }
+  .confirm-btns {
+    display: flex;
+    gap: 10px;
+  }
+  .confirm-btns button {
+    flex: 1;
+    padding: 12px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    cursor: pointer;
+    border: 1px solid;
+  }
+  .confirm-yes { background: var(--red); border-color: var(--red); color: #fff; }
+  .confirm-no { background: transparent; border-color: var(--border-bright); color: var(--text-secondary); }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Loading Screen -->
+  <div class="loading-screen" id="loading-screen">
+    <div class="loading-title">CruiseNav</div>
+    <div class="loading-spinner"></div>
+    <div class="loading-sub">Loading map tiles...</div>
+  </div>
+
+  <!-- Top Bar -->
+  <div class="topbar">
+    <div class="app-title">CruiseNav<small>Field App</small></div>
+    <div class="topbar-stats">
+      <div>Plots: <span class="val" id="stat-plots">0/0</span></div>
+      <div>Acres: <span class="val" id="stat-acres">0</span></div>
+      <div class="wake-indicator" id="wake-indicator"><div class="wake-dot"></div>Screen On</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="unit-toggle" id="unit-toggle" onclick="toggleDistUnit()" title="Toggle distance units">ft</button>
+      <button class="icon-btn" id="btn-basemap" onclick="cycleBasemap()" title="Switch basemap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-menu" onclick="openPanel('settings')" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Progress Strip -->
+  <div class="progress-strip"><div class="progress-fill" id="progress-fill"></div></div>
+
+  <!-- Map -->
+  <div id="map"></div>
+
+  <!-- Empty State Hint -->
+  <div class="empty-hint" id="empty-hint">
+    <div class="empty-hint-icon">🌲</div>
+    <div class="empty-hint-text">Tap the Boundary tool to start</div>
+  </div>
+
+  <!-- Drawing Hint -->
+  <div class="draw-hint" id="draw-hint">Tap points to draw boundary. Tap first point to close.</div>
+
+  <!-- Navigation HUD -->
+  <div class="nav-hud" id="nav-hud">
+    <div class="nav-hud-compass">
+      <div class="nav-hud-arrow" id="nav-arrow"></div>
+    </div>
+    <div class="nav-hud-info">
+      <div class="nav-hud-dist" id="nav-dist">--</div>
+      <div class="nav-hud-label">to plot</div>
+      <div class="nav-hud-plot" id="nav-plot-label">--</div>
+    </div>
+    <button class="nav-hud-close" onclick="stopNavigation()" title="Stop navigation">✕</button>
+  </div>
+
+  <!-- Tract Info Bar -->
+  <div class="tract-info-bar" id="tract-info-bar">
+    <div class="tract-stat">
+      <div class="tract-stat-val" id="info-acres">--</div>
+      <div class="tract-stat-label">Acres</div>
+    </div>
+    <div class="tract-stat">
+      <div class="tract-stat-val" id="info-plots-done">0</div>
+      <div class="tract-stat-label">Done</div>
+    </div>
+    <div class="tract-stat">
+      <div class="tract-stat-val" id="info-plots-total">0</div>
+      <div class="tract-stat-label">Total</div>
+    </div>
+    <div class="tract-stat">
+      <div class="tract-stat-val" id="info-pct">0%</div>
+      <div class="tract-stat-label">Complete</div>
+    </div>
+  </div>
+
+  <!-- Bottom Nav -->
+  <div class="bottom-nav">
+    <button class="nav-btn nav-locate" id="nav-btn-locate" onclick="toggleLocate()">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+      GPS
+    </button>
+    <button class="nav-btn" id="nav-btn-boundary" onclick="startDrawBoundary()">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><polygon points="12,2 22,20 2,20"/></svg>
+      Boundary
+    </button>
+    <button class="nav-btn" id="nav-btn-plots" onclick="openPanel('grid')">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="5" cy="5" r="1.5" fill="currentColor"/><circle cx="12" cy="5" r="1.5" fill="currentColor"/><circle cx="19" cy="5" r="1.5" fill="currentColor"/><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/></svg>
+      Plots
+    </button>
+    <button class="nav-btn" id="nav-btn-list" onclick="openPanel('plotlist')">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/></svg>
+      List
+    </button>
+    <button class="nav-btn" id="nav-btn-more" onclick="openPanel('settings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      More
+    </button>
+  </div>
+</div>
+
+<!-- ═══ PANELS ═══ -->
+<div class="panel-overlay" id="panel-overlay" onclick="closePanel()"></div>
+
+<!-- Grid Generation Panel -->
+<div class="panel" id="panel-grid">
+  <div class="panel-handle"></div>
+  <div class="panel-title">Generate Cruise Plots</div>
+  <div class="field-group">
+    <div class="field-label">Target Polygons</div>
+    <div class="poly-checklist" id="poly-checklist">
+      <div class="poly-check-empty">No polygons available. Draw a boundary or import a shapefile.</div>
+    </div>
+  </div>
+  <div class="field-group">
+    <div class="field-label">Grid Spacing (chains)</div>
+    <div class="field-row">
+      <div class="field-group">
+        <div class="field-label">Columns (X)</div>
+        <input class="field-input" id="grid-spacing-x" type="number" value="5" min="0.5" step="0.5"/>
+      </div>
+      <div class="field-group">
+        <div class="field-label">Rows (Y)</div>
+        <input class="field-input" id="grid-spacing-y" type="number" value="5" min="0.5" step="0.5"/>
+      </div>
+    </div>
+  </div>
+  <div class="field-group">
+    <div class="field-label">Grid Bearing (degrees)</div>
+    <input class="field-input" id="grid-bearing" type="number" value="0" min="0" max="359" step="1"/>
+  </div>
+  <button class="btn btn-primary" onclick="generatePlots()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="5" cy="5" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="19" cy="5" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+    Generate Grid
+  </button>
+  <button class="btn btn-danger" onclick="clearPlots()">Clear All Plots</button>
+</div>
+
+<!-- Plot List Panel -->
+<div class="panel" id="panel-plotlist">
+  <div class="panel-handle"></div>
+  <div class="panel-title">Plot List</div>
+  <div class="plot-list" id="plot-list-container"></div>
+  <button class="btn btn-primary" onclick="navigateToNext()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polygon points="3,11 22,2 13,21 11,13 3,11"/></svg>
+    Navigate to Next Pending
+  </button>
+  <button class="btn btn-secondary" onclick="markAllComplete()">Mark All Complete</button>
+  <button class="btn btn-secondary" onclick="resetAllPlots()">Reset All to Pending</button>
+</div>
+
+<!-- Settings Panel -->
+<div class="panel" id="panel-settings">
+  <div class="panel-handle"></div>
+  <div class="panel-title">Tools & Settings</div>
+  <div class="settings-grid">
+    <div class="settings-card" onclick="closePanel(); startDrawBoundary()">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><polygon points="12,2 22,20 2,20"/></svg>
+      <div class="settings-card-label">Draw Boundary</div>
+    </div>
+    <div class="settings-card" onclick="closePanel(); startManualPlot()">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/></svg>
+      <div class="settings-card-label">Place Plot</div>
+    </div>
+    <div class="settings-card" onclick="closePanel(); toggleEdit()">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      <div class="settings-card-label">Edit Shapes</div>
+    </div>
+    <div class="settings-card" onclick="closePanel(); openPanel('grid')">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="5" cy="5" r="1.5" fill="currentColor"/><circle cx="12" cy="5" r="1.5" fill="currentColor"/><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
+      <div class="settings-card-label">Cruise Grid</div>
+    </div>
+  </div>
+  <button class="btn btn-secondary" onclick="closePanel(); importShapefile()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,5 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    Import Shapefile (.shp/.zip)
+  </button>
+  <button class="btn btn-secondary" onclick="exportProject()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    Export Project (GeoJSON)
+  </button>
+  <button class="btn btn-danger" onclick="clearEverything()">Clear All Data</button>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Undo Toast -->
+<div class="toast-undo" id="toast-undo">
+  <div class="toast-undo-text" id="undo-text"></div>
+  <button class="toast-undo-btn" onclick="undoLastToggle()">Undo</button>
+</div>
+
+<!-- Confirm Dialog -->
+<div class="confirm-overlay" id="confirm-overlay">
+  <div class="confirm-box">
+    <div class="confirm-msg" id="confirm-msg"></div>
+    <div class="confirm-btns">
+      <button class="confirm-no" onclick="confirmResolve(false)">Cancel</button>
+      <button class="confirm-yes" onclick="confirmResolve(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden file input -->
+<input type="file" id="file-input" accept=".shp,.dbf,.shx,.prj,.zip,.geojson,.json" multiple style="display:none">
+
+<!-- Libraries -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// CruiseNav - Timber Cruise Field App
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── State ──
+let tractBoundary = null;        // L.Polygon (first drawn/imported)
+let allPolygons = [];            // [{layer: L.Polygon, name: string}] - all available polygons
+let tractLayer = new L.FeatureGroup();
+let plotMarkers = [];            // [{id, lat, lng, completed, marker, navLine}]
+let plotLayer = new L.FeatureGroup();
+let myLocationMarker = null;
+let myLocation = null;           // {lat, lng}
+let locationWatchId = null;
+let isLocating = false;
+let isDrawing = false;
+let isEditing = false;
+let navTargetId = null;          // plot id being navigated to
+let navLine = null;
+let currentDrawer = null;
+let deviceHeading = null;
+let distUnit = 'ft';            // 'ft' or 'm'
+let wakeLock = null;
+let lastToggle = null;           // {id, previousState} for undo
+let _confirmCb = null;
+
+// ── Map setup ──
+const map = L.map('map', {
+  zoomControl: false,
+  attributionControl: false,
+  tap: true
+}).setView([35.5, -79.5], 7);
+
+// Basemaps
+const basemaps = {
+  hybrid: L.layerGroup([
+    L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', { maxZoom: 20 }),
+    L.tileLayer('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}', { maxZoom: 20, opacity: 0.9 })
+  ]),
+  satellite: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', { maxZoom: 20 }),
+  streets: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }),
+  topo: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17 })
+};
+
+const basemapOrder = ['hybrid', 'satellite', 'streets', 'topo'];
+let currentBasemap = 0;
+basemaps.hybrid.addTo(map);
+
+map.addLayer(tractLayer);
+map.addLayer(plotLayer);
+
+// Zoom control (top-right for thumb reach on mobile)
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+// Draw control (hidden toolbar, used programmatically)
+const drawControl = new L.Control.Draw({
+  edit: { featureGroup: tractLayer },
+  draw: {
+    polygon: { shapeOptions: { color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4 } },
+    polyline: false, marker: false, rectangle: false, circle: false, circlemarker: false
+  }
+});
+map.addControl(drawControl);
+
+// ── Basemap cycling ──
+function cycleBasemap() {
+  map.removeLayer(basemaps[basemapOrder[currentBasemap]]);
+  currentBasemap = (currentBasemap + 1) % basemapOrder.length;
+  basemaps[basemapOrder[currentBasemap]].addTo(map);
+  toast(basemapOrder[currentBasemap].charAt(0).toUpperCase() + basemapOrder[currentBasemap].slice(1));
+}
+
+// ── Toast notification ──
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+// ── Panel management ──
+let currentPanel = null;
+function openPanel(name) {
+  closePanel();
+  if (name === 'plotlist') refreshPlotList();
+  if (name === 'grid') refreshPolyChecklist();
+  document.getElementById('panel-overlay').classList.add('open');
+  document.getElementById('panel-' + name).classList.add('open');
+  currentPanel = name;
+}
+function closePanel() {
+  document.getElementById('panel-overlay').classList.remove('open');
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('open'));
+  currentPanel = null;
+}
+
+// ── Draw boundary ──
+function startDrawBoundary() {
+  if (isDrawing) {
+    cancelDraw();
+    return;
+  }
+  isDrawing = true;
+  document.getElementById('nav-btn-boundary').classList.add('active');
+  document.getElementById('draw-hint').classList.add('show');
+
+  currentDrawer = new L.Draw.Polygon(map, {
+    shapeOptions: { color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4 }
+  });
+  currentDrawer.enable();
+}
+
+function cancelDraw() {
+  if (currentDrawer) {
+    currentDrawer.disable();
+    currentDrawer = null;
+  }
+  isDrawing = false;
+  document.getElementById('nav-btn-boundary').classList.remove('active');
+  document.getElementById('draw-hint').classList.remove('show');
+}
+
+map.on(L.Draw.Event.CREATED, function(e) {
+  if (e.layerType === 'polygon') {
+    tractBoundary = e.layer;
+    tractBoundary.setStyle({ color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4 });
+    tractLayer.addLayer(tractBoundary);
+
+    const acres = calcAcres(tractBoundary);
+    tractBoundary.bindPopup('<div class="plot-popup"><div class="plot-popup-title">Drawn Boundary</div><div class="plot-popup-info">' + acres.toFixed(2) + ' acres</div></div>');
+
+    // Register in allPolygons
+    allPolygons.push({ layer: tractBoundary, name: 'Drawn boundary (' + acres.toFixed(1) + ' ac)' });
+    refreshPolyChecklist();
+
+    updateTractInfo();
+    updateEmptyHint();
+    toast('Boundary drawn: ' + acres.toFixed(1) + ' ac');
+    saveSession();
+  }
+  cancelDraw();
+});
+
+map.on('draw:drawstop', cancelDraw);
+
+// ── Manual plot placement ──
+let placingPlot = false;
+
+function startManualPlot() {
+  if (placingPlot) {
+    placingPlot = false;
+    map.off('click', onManualPlotClick);
+    document.getElementById('draw-hint').classList.remove('show');
+    toast('Plot placement cancelled');
+    return;
+  }
+  placingPlot = true;
+  document.getElementById('draw-hint').textContent = 'Tap map to place a plot';
+  document.getElementById('draw-hint').classList.add('show');
+  map.once('click', onManualPlotClick);
+}
+
+function onManualPlotClick(e) {
+  placingPlot = false;
+  document.getElementById('draw-hint').classList.remove('show');
+  const id = plotMarkers.length + 1;
+  addPlot(id, e.latlng.lat, e.latlng.lng);
+  toast('Plot ' + id + ' placed');
+}
+
+// ── Edit mode ──
+function toggleEdit() {
+  if (isEditing) {
+    // Save edits
+    tractLayer.eachLayer(l => {
+      if (l.editing) l.editing.disable();
+    });
+    isEditing = false;
+    toast('Edits saved');
+    updateTractInfo();
+  } else {
+    tractLayer.eachLayer(l => {
+      if (l.editing) l.editing.enable();
+    });
+    isEditing = true;
+    toast('Edit mode: drag vertices');
+  }
+}
+
+// ── GPS Location ──
+let pendingFlyToLocation = false;
+
+function toggleLocate() {
+  const btn = document.getElementById('nav-btn-locate');
+  if (isLocating) {
+    // If already locating and we have a position, fly to it
+    if (myLocation) {
+      map.setView([myLocation.lat, myLocation.lng], Math.max(map.getZoom(), 16), { animate: true });
+    } else {
+      stopLocating();
+      btn.classList.remove('active');
+    }
+  } else {
+    startLocating();
+    btn.classList.add('active');
+  }
+}
+
+function startLocating() {
+  if (!navigator.geolocation) { toast('GPS not available'); return; }
+  isLocating = true;
+  pendingFlyToLocation = true;
+
+  locationWatchId = navigator.geolocation.watchPosition(
+    pos => {
+      myLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      updateLocationMarker();
+      updateNavigation();
+      updatePlotDistances();
+      if (pendingFlyToLocation) {
+        pendingFlyToLocation = false;
+        map.setView([myLocation.lat, myLocation.lng], Math.max(map.getZoom(), 16), { animate: true });
+      }
+    },
+    err => { toast('GPS error: ' + err.message); },
+    { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
+  );
+
+  // Heading from device orientation
+  if (window.DeviceOrientationEvent) {
+    window.addEventListener('deviceorientationabsolute', onHeading, true);
+    window.addEventListener('deviceorientation', onHeading, true);
+  }
+}
+
+function onHeading(e) {
+  if (e.absolute && e.alpha != null) {
+    deviceHeading = 360 - e.alpha;
+  } else if (e.webkitCompassHeading != null) {
+    deviceHeading = e.webkitCompassHeading;
+  }
+}
+
+function stopLocating() {
+  isLocating = false;
+  if (locationWatchId != null) {
+    navigator.geolocation.clearWatch(locationWatchId);
+    locationWatchId = null;
+  }
+  if (myLocationMarker) {
+    map.removeLayer(myLocationMarker);
+    myLocationMarker = null;
+  }
+  window.removeEventListener('deviceorientationabsolute', onHeading, true);
+  window.removeEventListener('deviceorientation', onHeading, true);
+}
+
+function updateLocationMarker() {
+  if (!myLocation) return;
+  if (!myLocationMarker) {
+    const icon = L.divIcon({ className: 'my-location-marker', iconSize: [16, 16], iconAnchor: [8, 8] });
+    myLocationMarker = L.marker([myLocation.lat, myLocation.lng], { icon, zIndexOffset: 1000 }).addTo(map);
+  } else {
+    myLocationMarker.setLatLng([myLocation.lat, myLocation.lng]);
+  }
+}
+
+// ── Plot management ──
+function addPlot(id, lat, lng) {
+  const size = 28;
+  const icon = L.divIcon({
+    className: '',
+    html: '<div class="cruise-plot-marker pending" id="plot-marker-' + id + '" style="width:' + size + 'px;height:' + size + 'px;">' + id + '</div>',
+    iconSize: [size, size],
+    iconAnchor: [size/2, size/2]
+  });
+
+  const marker = L.marker([lat, lng], { icon, draggable: false }).addTo(plotLayer);
+  const plot = { id, lat, lng, completed: false, marker };
+  plotMarkers.push(plot);
+
+  marker.on('click', () => openPlotPopup(plot));
+  updateStats();
+  updateEmptyHint();
+}
+
+function openPlotPopup(plot) {
+  const statusLabel = plot.completed ? 'Completed' : 'Pending';
+  const statusColor = plot.completed ? 'var(--accent)' : 'var(--orange)';
+  const toggleLabel = plot.completed ? 'Mark Pending' : 'Mark Complete';
+  const toggleClass = plot.completed ? 'popup-btn-pending' : 'popup-btn-complete';
+
+  const content = '<div class="plot-popup">' +
+    '<div class="plot-popup-title">Plot ' + plot.id + '</div>' +
+    '<div class="plot-popup-info">' +
+      'Status: <span style="color:' + statusColor + ';font-weight:700">' + statusLabel + '</span><br>' +
+      'Lat: ' + plot.lat.toFixed(6) + '<br>' +
+      'Lng: ' + plot.lng.toFixed(6) +
+      (myLocation ? '<br>Distance: ' + formatDist(getDistance(myLocation.lat, myLocation.lng, plot.lat, plot.lng)) : '') +
+    '</div>' +
+    '<div class="plot-popup-actions">' +
+      '<button class="popup-btn ' + toggleClass + '" onclick="togglePlotStatus(' + plot.id + ')"> ' + toggleLabel + '</button>' +
+      '<button class="popup-btn popup-btn-nav" onclick="navigateToPlot(' + plot.id + ')">Nav</button>' +
+    '</div>' +
+    '<div style="margin-top:6px"><button class="popup-btn popup-btn-delete" style="width:100%" onclick="deletePlot(' + plot.id + ')">Delete Plot</button></div>' +
+  '</div>';
+
+  plot.marker.unbindPopup();
+  plot.marker.bindPopup(content, { maxWidth: 260, closeButton: true }).openPopup();
+}
+
+function togglePlotStatus(id) {
+  const plot = plotMarkers.find(p => p.id === id);
+  if (!plot) return;
+  const wasCompleted = plot.completed;
+  plot.completed = !plot.completed;
+  updatePlotMarkerStyle(plot);
+  map.closePopup();
+  updateStats();
+
+  // Haptic feedback
+  vibrate(plot.completed ? [50, 30, 50] : [30]);
+
+  // Show undo toast instead of regular toast
+  showUndoToast(id, wasCompleted);
+
+  // Stop navigation if the completed plot was the nav target
+  if (navTargetId === id && plot.completed) {
+    stopNavigation();
+  }
+
+  // Auto-save
+  saveSession();
+}
+
+function updatePlotMarkerStyle(plot) {
+  const el = document.getElementById('plot-marker-' + plot.id);
+  if (!el) return;
+  el.className = 'cruise-plot-marker ' +
+    (navTargetId === plot.id ? 'navigating' : (plot.completed ? 'complete' : 'pending'));
+}
+
+function deletePlot(id) {
+  const idx = plotMarkers.findIndex(p => p.id === id);
+  if (idx === -1) return;
+  const plot = plotMarkers[idx];
+  plotLayer.removeLayer(plot.marker);
+  plotMarkers.splice(idx, 1);
+  if (navTargetId === id) stopNavigation();
+  map.closePopup();
+  updateStats();
+  updateEmptyHint();
+  toast('Plot ' + id + ' deleted');
+}
+
+async function clearPlots() {
+  if (plotMarkers.length === 0) { toast('No plots to clear'); return; }
+  const ok = await showConfirm('Clear all ' + plotMarkers.length + ' plots?');
+  if (!ok) return;
+  plotMarkers.forEach(p => plotLayer.removeLayer(p.marker));
+  plotMarkers = [];
+  stopNavigation();
+  closePanel();
+  updateStats();
+  updateEmptyHint();
+  saveSession();
+  toast('All plots cleared');
+}
+
+// ── Polygon checklist for grid ──
+function refreshPolyChecklist() {
+  const container = document.getElementById('poly-checklist');
+  if (allPolygons.length === 0) {
+    container.innerHTML = '<div class="poly-check-empty">No polygons available. Draw a boundary or import a shapefile.</div>';
+    return;
+  }
+  let html = '<div class="poly-check-actions"><button onclick="checkAllPolys(true)">Select All</button><button onclick="checkAllPolys(false)">Deselect All</button></div>';
+  allPolygons.forEach((p, i) => {
+    html += '<label class="poly-check"><input type="checkbox" checked data-poly-idx="' + i + '"> ' + p.name + '</label>';
+  });
+  container.innerHTML = html;
+}
+
+function checkAllPolys(checked) {
+  document.querySelectorAll('#poly-checklist input[type=checkbox]').forEach(cb => cb.checked = checked);
+}
+
+// ── Generate cruise grid ──
+function generatePlots() {
+  // Get selected polygons
+  const checks = document.querySelectorAll('#poly-checklist input[type=checkbox]:checked');
+  const selectedIndices = Array.from(checks).map(cb => parseInt(cb.getAttribute('data-poly-idx'))).filter(i => !isNaN(i));
+  const selectedPolygons = selectedIndices.map(i => allPolygons[i]).filter(Boolean);
+
+  if (selectedPolygons.length === 0) {
+    toast('Select at least one polygon');
+    return;
+  }
+
+  // Clear existing
+  plotMarkers.forEach(p => plotLayer.removeLayer(p.marker));
+  plotMarkers = [];
+  stopNavigation();
+
+  const spacingX = parseFloat(document.getElementById('grid-spacing-x').value) || 5;
+  const spacingY = parseFloat(document.getElementById('grid-spacing-y').value) || 5;
+  const bearing = parseFloat(document.getElementById('grid-bearing').value) || 0;
+
+  const dxM = spacingX * 20.1168;
+  const dyM = spacingY * 20.1168;
+  const bearingRad = bearing * Math.PI / 180;
+
+  const allPoints = [];
+
+  selectedPolygons.forEach(poly => {
+    const lls = poly.layer.getLatLngs()[0];
+    const bounds = poly.layer.getBounds();
+    const centerLat = bounds.getCenter().lat;
+    const centerLng = bounds.getCenter().lng;
+    const diagonal = bounds.getNorthEast().distanceTo(bounds.getSouthWest());
+    const halfDiag = diagonal / 2 * 1.2;
+
+    const stepsX = Math.ceil(halfDiag * 2 / dxM);
+    const stepsY = Math.ceil(halfDiag * 2 / dyM);
+
+    for (let iy = -stepsY; iy <= stepsY; iy++) {
+      for (let ix = -stepsX; ix <= stepsX; ix++) {
+        const lx = ix * dxM;
+        const ly = iy * dyM;
+        const rx = lx * Math.cos(bearingRad) - ly * Math.sin(bearingRad);
+        const ry = lx * Math.sin(bearingRad) + ly * Math.cos(bearingRad);
+        const lat = centerLat + (ry / 111320);
+        const lng = centerLng + (rx / (111320 * Math.cos(centerLat * Math.PI / 180)));
+
+        if (pointInPolygon(lat, lng, lls)) {
+          allPoints.push({ id: 0, lat, lng });
+        }
+      }
+    }
+  });
+
+  // Sort all points by walking order across all polygons
+  const sorted = sortByWalkingOrder(allPoints);
+  sorted.forEach((p, i) => {
+    p.id = i + 1;
+    addPlot(p.id, p.lat, p.lng);
+  });
+
+  closePanel();
+  if (plotMarkers.length > 0) {
+    const group = L.featureGroup(plotMarkers.map(p => p.marker));
+    map.fitBounds(group.getBounds().pad(0.1));
+  }
+  toast(plotMarkers.length + ' plots generated');
+  saveSession();
+}
+
+function sortByWalkingOrder(points) {
+  if (points.length <= 1) return points;
+  const sorted = [points[0]];
+  const remaining = points.slice(1);
+
+  while (remaining.length > 0) {
+    const last = sorted[sorted.length - 1];
+    let nearest = 0;
+    let nearestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const d = getDistance(last.lat, last.lng, remaining[i].lat, remaining[i].lng);
+      if (d < nearestDist) { nearestDist = d; nearest = i; }
+    }
+    sorted.push(remaining.splice(nearest, 1)[0]);
+  }
+  return sorted;
+}
+
+function pointInPolygon(lat, lng, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lat, yi = polygon[i].lng;
+    const xj = polygon[j].lat, yj = polygon[j].lng;
+    const intersect = ((yi > lng) !== (yj > lng)) && (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// ── Navigation ──
+function navigateToPlot(id) {
+  const plot = plotMarkers.find(p => p.id === id);
+  if (!plot) return;
+
+  // Clear previous nav styling
+  if (navTargetId != null) {
+    const prev = plotMarkers.find(p => p.id === navTargetId);
+    if (prev) updatePlotMarkerStyle(prev);
+  }
+  if (navLine) { map.removeLayer(navLine); navLine = null; }
+
+  navTargetId = id;
+  updatePlotMarkerStyle(plot);
+
+  // Show HUD
+  document.getElementById('nav-hud').classList.add('open');
+  document.getElementById('nav-plot-label').textContent = 'Plot ' + id;
+
+  // Enable GPS if not on
+  if (!isLocating) toggleLocate();
+
+  // Keep screen on
+  requestWakeLock();
+
+  // Center on plot
+  map.setView([plot.lat, plot.lng], Math.max(map.getZoom(), 16));
+  map.closePopup();
+  closePanel();
+
+  updateNavigation();
+  toast('Navigating to Plot ' + id);
+}
+
+function navigateToNext() {
+  const next = plotMarkers.find(p => !p.completed);
+  if (next) {
+    navigateToPlot(next.id);
+  } else {
+    toast('All plots completed!');
+  }
+  closePanel();
+}
+
+function stopNavigation() {
+  if (navTargetId != null) {
+    const plot = plotMarkers.find(p => p.id === navTargetId);
+    if (plot) updatePlotMarkerStyle(plot);
+  }
+  navTargetId = null;
+  if (navLine) { map.removeLayer(navLine); navLine = null; }
+  document.getElementById('nav-hud').classList.remove('open');
+  releaseWakeLock();
+}
+
+let arrivedAtPlot = {};
+function updateNavigation() {
+  if (navTargetId == null || !myLocation) return;
+  const plot = plotMarkers.find(p => p.id === navTargetId);
+  if (!plot) return;
+
+  const dist = getDistance(myLocation.lat, myLocation.lng, plot.lat, plot.lng);
+  document.getElementById('nav-dist').textContent = formatDist(dist);
+
+  // Direction arrow
+  const bearing = getBearing(myLocation.lat, myLocation.lng, plot.lat, plot.lng);
+  const rotation = deviceHeading != null ? bearing - deviceHeading : bearing;
+  document.getElementById('nav-arrow').style.transform = 'rotate(' + rotation + 'deg)';
+
+  // Draw nav line
+  if (navLine) map.removeLayer(navLine);
+  navLine = L.polyline([[myLocation.lat, myLocation.lng], [plot.lat, plot.lng]], {
+    color: '#3498db', weight: 3, dashArray: '8 8', opacity: 0.8, className: 'nav-line'
+  }).addTo(map);
+
+  // Auto-arrive: if within ~10m, vibrate and notify once
+  if (dist < 10 && !arrivedAtPlot[plot.id]) {
+    arrivedAtPlot[plot.id] = true;
+    vibrate([100, 50, 100, 50, 200]);
+    toast('Arrived at Plot ' + plot.id + '!');
+  } else if (dist >= 20) {
+    arrivedAtPlot[plot.id] = false;
+  }
+}
+
+function updatePlotDistances() {
+  // For plot list refresh if open
+  if (currentPanel === 'plotlist') refreshPlotList();
+}
+
+// ── Plot list ──
+function refreshPlotList() {
+  const container = document.getElementById('plot-list-container');
+  if (plotMarkers.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.65rem;">No plots yet. Generate a grid or place plots manually.</div>';
+    return;
+  }
+
+  let html = '';
+  plotMarkers.forEach(plot => {
+    const isNav = navTargetId === plot.id;
+    const dist = myLocation ? getDistance(myLocation.lat, myLocation.lng, plot.lat, plot.lng) : null;
+    const statusClass = isNav ? 'navigating' : (plot.completed ? 'complete' : 'pending');
+    const itemClass = isNav ? 'active-nav' : (plot.completed ? 'completed' : '');
+
+    html += '<div class="plot-list-item ' + itemClass + '" onclick="flyToPlot(' + plot.id + ')">' +
+      '<div class="plot-dot ' + statusClass + '">' + plot.id + '</div>' +
+      '<div class="plot-list-info">' +
+        '<div class="plot-list-name">Plot ' + plot.id + '</div>' +
+        '<div class="plot-list-meta">' + (plot.completed ? 'Completed' : (isNav ? 'Navigating...' : 'Pending')) + '</div>' +
+      '</div>' +
+      (dist != null ? '<div class="plot-list-dist">' + formatDist(dist) + '</div>' : '') +
+    '</div>';
+  });
+  container.innerHTML = html;
+}
+
+function flyToPlot(id) {
+  const plot = plotMarkers.find(p => p.id === id);
+  if (!plot) return;
+  closePanel();
+  map.setView([plot.lat, plot.lng], Math.max(map.getZoom(), 17), { animate: true });
+  setTimeout(() => openPlotPopup(plot), 400);
+}
+
+function markAllComplete() {
+  plotMarkers.forEach(p => { p.completed = true; updatePlotMarkerStyle(p); });
+  updateStats();
+  refreshPlotList();
+  toast('All plots marked complete');
+}
+
+function resetAllPlots() {
+  plotMarkers.forEach(p => { p.completed = false; updatePlotMarkerStyle(p); });
+  updateStats();
+  refreshPlotList();
+  toast('All plots reset to pending');
+}
+
+// ── Import/Export ──
+function importShapefile() {
+  const input = document.getElementById('file-input');
+  input.onchange = function() {
+    if (!this.files.length) return;
+    handleShpFiles(this.files);
+    this.value = '';
+  };
+  input.click();
+}
+
+function handleShpFiles(files) {
+  const fileMap = {};
+  Array.from(files).forEach(f => { fileMap[f.name.split('.').pop().toLowerCase()] = f; });
+
+  // Zip bundle
+  if (fileMap.zip) {
+    JSZip.loadAsync(fileMap.zip).then(zip => {
+      const shpSets = {};
+      zip.forEach((path, entry) => {
+        const fileName = path.split('/').pop();
+        const ext = fileName.split('.').pop().toLowerCase();
+        const baseName = fileName.replace(/\.[^.]+$/, '');
+        if (['shp', 'dbf', 'prj', 'shx'].includes(ext)) {
+          if (!shpSets[baseName]) shpSets[baseName] = {};
+          shpSets[baseName][ext] = entry;
+        }
+      });
+      const validSets = Object.entries(shpSets).filter(([_, files]) => files.shp);
+      if (!validSets.length) { toast('No .shp found in zip'); return; }
+      validSets.forEach(([baseName, files]) => {
+        Promise.all([
+          files.shp.async('arraybuffer'),
+          files.dbf ? files.dbf.async('arraybuffer') : Promise.resolve(null),
+          files.prj ? files.prj.async('string') : Promise.resolve(null)
+        ]).then(([s, d, p]) => loadShpLayer(s, d, baseName, p));
+      });
+      if (validSets.length > 1) toast('Loading ' + validSets.length + ' shapefiles from zip...');
+    }).catch(() => toast('Error reading zip'));
+    return;
+  }
+
+  // GeoJSON
+  if (fileMap.geojson || fileMap.json) {
+    const f = fileMap.geojson || fileMap.json;
+    f.text().then(text => {
+      try {
+        const geojson = JSON.parse(text);
+        loadGeoJSON(geojson, f.name.replace(/\.[^.]+$/, ''));
+      } catch(e) { toast('Invalid GeoJSON'); }
+    });
+    return;
+  }
+
+  // Individual .shp + .dbf files
+  if (!fileMap.shp) { toast('Select a .shp file (or .zip)'); return; }
+  const name = fileMap.shp.name.replace(/\.shp$/i, '');
+  const readBuf = f => new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsArrayBuffer(f); });
+  const readTxt = f => new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsText(f); });
+  Promise.all([
+    readBuf(fileMap.shp),
+    fileMap.dbf ? readBuf(fileMap.dbf) : Promise.resolve(null),
+    fileMap.prj ? readTxt(fileMap.prj) : Promise.resolve(null)
+  ]).then(([s, d, p]) => loadShpLayer(s, d, name, p));
+}
+
+function reprojectCoords(coords, fromProj) {
+  if (typeof coords[0] === 'number') {
+    const [x, y] = proj4(fromProj, 'WGS84', [coords[0], coords[1]]);
+    return [x, y];
+  }
+  return coords.map(c => reprojectCoords(c, fromProj));
+}
+
+function loadShpLayer(shpBuf, dbfBuf, name, prjWkt) {
+  let features;
+  try { features = readShpFeatures(shpBuf); }
+  catch(e) { toast('Invalid shapefile'); return; }
+  if (!features.length) { toast('Shapefile has no features'); return; }
+
+  if (dbfBuf) {
+    try {
+      const attrs = readDbfRecords(dbfBuf);
+      features.forEach((f, i) => { if (attrs[i]) f.properties = attrs[i]; });
+    } catch(e) {}
+  }
+
+  // Reproject if .prj provided
+  if (prjWkt && typeof proj4 !== 'undefined') {
+    try {
+      features = features.map(f => f.geometry
+        ? { ...f, geometry: { ...f.geometry, coordinates: reprojectCoords(f.geometry.coordinates, prjWkt) } }
+        : f
+      );
+    } catch(e) { console.warn('Reprojection failed:', e); toast('Warning: could not reproject'); }
+  }
+
+  loadGeoJSON({ type: 'FeatureCollection', features: features }, name);
+}
+
+function loadGeoJSON(geojson, name) {
+  let polyIdx = 0;
+  const layer = L.geoJSON(geojson, {
+    style: () => ({ color: '#e53935', weight: 4, fillOpacity: 0, fill: false, opacity: 1 }),
+    pointToLayer: (feat, ll) => L.circleMarker(ll, {
+      radius: 5, color: '#e53935', fillColor: '#e53935', fillOpacity: 0.9, weight: 2
+    }),
+    onEachFeature: (feat, lyr) => {
+      const p = feat.properties;
+      if (p && Object.keys(p).length) {
+        lyr.bindPopup(Object.entries(p).slice(0, 10).map(([k, v]) => '<b>' + k + ':</b> ' + v).join('<br>'));
+      }
+      // Register all polygons
+      if (lyr instanceof L.Polygon) {
+        tractLayer.addLayer(lyr);
+        if (!tractBoundary) tractBoundary = lyr;
+        polyIdx++;
+        const firstProp = p ? Object.values(p).find(v => v && String(v).trim()) : null;
+        const label = firstProp ? name + ': ' + firstProp : name + ' #' + polyIdx;
+        try {
+          const ac = calcAcres(lyr);
+          allPolygons.push({ layer: lyr, name: label + ' (' + ac.toFixed(1) + ' ac)' });
+        } catch(e) {
+          allPolygons.push({ layer: lyr, name: label });
+        }
+      }
+    }
+  });
+
+  // Add non-polygon features to map
+  layer.eachLayer(lyr => {
+    if (!(lyr instanceof L.Polygon)) {
+      tractLayer.addLayer(lyr);
+    }
+  });
+
+  try { map.fitBounds(layer.getBounds().pad(0.1)); } catch(e) {}
+  refreshPolyChecklist();
+  updateTractInfo();
+  updateEmptyHint();
+
+  const featCount = geojson.features ? geojson.features.length : 0;
+  toast('Loaded ' + name + ' (' + featCount + ' features)');
+  saveSession();
+}
+
+// ── Minimal .shp binary reader ──
+function readShpFeatures(buf) {
+  const v = new DataView(buf);
+  if (v.getInt32(0, false) !== 9994) throw new Error('Not a shapefile');
+  const fileLen = v.getInt32(24, false) * 2;
+  const features = [];
+  let off = 100;
+
+  while (off + 8 <= fileLen) {
+    const contentLen = v.getInt32(off + 4, false) * 2;
+    off += 8;
+    if (off + contentLen > fileLen) break;
+    const t = v.getInt32(off, true);
+
+    if (t === 1 || t === 11 || t === 21) { // Point / PointZ / PointM
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [v.getFloat64(off+4,true), v.getFloat64(off+12,true)] },
+        properties: {}
+      });
+    } else if (t === 3 || t === 5 || t === 13 || t === 15 || t === 23 || t === 25) {
+      const nParts = v.getInt32(off+36, true);
+      const nPts   = v.getInt32(off+40, true);
+      const parts  = Array.from({ length: nParts }, (_, i) => v.getInt32(off+44+i*4, true));
+      const ptBase = off + 44 + nParts * 4;
+      const pts    = Array.from({ length: nPts }, (_, i) => [
+        v.getFloat64(ptBase+i*16, true),
+        v.getFloat64(ptBase+i*16+8, true)
+      ]);
+      const rings = parts.map((s, i) => pts.slice(s, i+1 < nParts ? parts[i+1] : nPts));
+
+      if (t === 3 || t === 13 || t === 23) { // Polyline variants
+        features.push({
+          type: 'Feature',
+          geometry: rings.length === 1
+            ? { type: 'LineString', coordinates: rings[0] }
+            : { type: 'MultiLineString', coordinates: rings },
+          properties: {}
+        });
+      } else { // Polygon variants
+        const signed = rings.map(r => {
+          let a = 0;
+          for (let i = 0, j = r.length-1; i < r.length; j=i++) a += (r[j][0]+r[i][0])*(r[j][1]-r[i][1]);
+          return { ring: r, outer: a > 0 };
+        });
+        const outers = signed.filter(c => c.outer).map(c => c.ring);
+        const holes  = signed.filter(c => !c.outer).map(c => c.ring);
+        if (!outers.length) outers.push(rings[0]);
+
+        if (outers.length === 1) {
+          features.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [outers[0], ...holes] }, properties: {} });
+        } else {
+          features.push({ type: 'Feature', geometry: { type: 'MultiPolygon', coordinates: outers.map(o => [o]) }, properties: {} });
+        }
+      }
+    }
+    off += contentLen;
+  }
+  return features;
+}
+
+// ── Minimal .dbf reader ──
+function readDbfRecords(buf) {
+  const v = new DataView(buf);
+  const b = new Uint8Array(buf);
+  const dec = new TextDecoder('latin1');
+  const nRec  = v.getInt32(4, true);
+  const hSize = v.getInt16(8, true);
+  const rSize = v.getInt16(10, true);
+  const fields = [];
+  for (let off = 32; off < hSize - 1 && b[off] !== 0x0D; off += 32) {
+    fields.push({ nm: dec.decode(b.slice(off, off+11)).replace(/\0/g, '').trim(), len: b[off+16] });
+  }
+  const records = [];
+  for (let i = 0, off = hSize; i < nRec; i++, off += rSize) {
+    if (b[off] === 0x2A) continue;
+    const rec = {};
+    let fo = off + 1;
+    fields.forEach(f => { rec[f.nm] = dec.decode(b.slice(fo, fo+f.len)).trim(); fo += f.len; });
+    records.push(rec);
+  }
+  return records;
+}
+
+function exportProject() {
+  const data = {
+    type: 'FeatureCollection',
+    features: []
+  };
+
+  // Boundary
+  if (tractBoundary) {
+    const lls = tractBoundary.getLatLngs()[0];
+    const ring = lls.map(ll => [ll.lng, ll.lat]);
+    ring.push(ring[0]);
+    data.features.push({
+      type: 'Feature',
+      properties: { type: 'boundary', acres: calcAcres(tractBoundary).toFixed(2) },
+      geometry: { type: 'Polygon', coordinates: [ring] }
+    });
+  }
+
+  // Plots
+  plotMarkers.forEach(p => {
+    data.features.push({
+      type: 'Feature',
+      properties: { type: 'plot', id: p.id, completed: p.completed },
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] }
+    });
+  });
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'cruise_project.geojson';
+  a.click();
+  closePanel();
+  toast('Project exported');
+}
+
+async function clearEverything() {
+  const ok = await showConfirm('Clear all boundaries and plots? This cannot be undone.');
+  if (!ok) return;
+  tractLayer.clearLayers();
+  tractBoundary = null;
+  allPolygons = [];
+  plotMarkers.forEach(p => plotLayer.removeLayer(p.marker));
+  plotMarkers = [];
+  stopNavigation();
+  refreshPolyChecklist();
+  updateStats();
+  updateTractInfo();
+  updateEmptyHint();
+  closePanel();
+  saveSession();
+  toast('All data cleared');
+}
+
+// ── Calculations ──
+function calcAcres(layer) {
+  const lls = layer.getLatLngs()[0];
+  const R = 6378137;
+  let area = 0;
+  const n = lls.length;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const xi = lls[i].lng * Math.PI / 180 * R * Math.cos(lls[i].lat * Math.PI / 180);
+    const yi = lls[i].lat * Math.PI / 180 * R;
+    const xj = lls[j].lng * Math.PI / 180 * R * Math.cos(lls[j].lat * Math.PI / 180);
+    const yj = lls[j].lat * Math.PI / 180 * R;
+    area += xi * yj - xj * yi;
+  }
+  return Math.abs(area / 2) * 0.000247105;
+}
+
+function getDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng/2) * Math.sin(dLng/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function getBearing(lat1, lng1, lat2, lng2) {
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const y = Math.sin(dLng) * Math.cos(lat2 * Math.PI / 180);
+  const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+            Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLng);
+  return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+}
+
+function formatDist(meters) {
+  if (distUnit === 'ft') {
+    const feet = meters * 3.28084;
+    if (feet < 5280) return Math.round(feet) + ' ft';
+    return (feet / 5280).toFixed(2) + ' mi';
+  }
+  if (meters < 1000) return Math.round(meters) + ' m';
+  return (meters / 1000).toFixed(2) + ' km';
+}
+
+// ── Distance unit toggle ──
+function toggleDistUnit() {
+  distUnit = distUnit === 'ft' ? 'm' : 'ft';
+  document.getElementById('unit-toggle').textContent = distUnit;
+  toast('Distance: ' + (distUnit === 'ft' ? 'Feet' : 'Meters'));
+  // Refresh nav HUD if active
+  updateNavigation();
+}
+
+// ── Custom confirm dialog (mobile-friendly, no native alert) ──
+function showConfirm(msg) {
+  return new Promise(resolve => {
+    _confirmCb = resolve;
+    document.getElementById('confirm-msg').textContent = msg;
+    document.getElementById('confirm-overlay').classList.add('open');
+  });
+}
+function confirmResolve(val) {
+  document.getElementById('confirm-overlay').classList.remove('open');
+  if (_confirmCb) { _confirmCb(val); _confirmCb = null; }
+}
+
+// ── Undo last plot toggle ──
+function showUndoToast(plotId, wasCompleted) {
+  lastToggle = { id: plotId, previousState: wasCompleted };
+  document.getElementById('undo-text').textContent = 'Plot ' + plotId + ' marked ' + (wasCompleted ? 'pending' : 'complete');
+  const el = document.getElementById('toast-undo');
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.classList.remove('show'); lastToggle = null; }, 5000);
+}
+function undoLastToggle() {
+  if (!lastToggle) return;
+  const plot = plotMarkers.find(p => p.id === lastToggle.id);
+  if (plot) {
+    plot.completed = lastToggle.previousState;
+    updatePlotMarkerStyle(plot);
+    updateStats();
+    toast('Undone');
+  }
+  document.getElementById('toast-undo').classList.remove('show');
+  lastToggle = null;
+}
+
+// ── Wake Lock (keep screen on during navigation) ──
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      document.getElementById('wake-indicator').classList.add('on');
+      wakeLock.addEventListener('release', () => {
+        document.getElementById('wake-indicator').classList.remove('on');
+      });
+    }
+  } catch(e) {}
+}
+function releaseWakeLock() {
+  if (wakeLock) {
+    wakeLock.release().catch(() => {});
+    wakeLock = null;
+  }
+  document.getElementById('wake-indicator').classList.remove('on');
+}
+
+// ── Vibration helper ──
+function vibrate(pattern) {
+  if (navigator.vibrate) navigator.vibrate(pattern);
+}
+
+// ── Auto-save to IndexedDB ──
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('CruiseNavDB', 1);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('state')) db.createObjectStore('state');
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = () => reject();
+  });
+}
+
+async function saveSession() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction('state', 'readwrite');
+    const store = tx.objectStore('state');
+
+    const data = {
+      plots: plotMarkers.map(p => ({ id: p.id, lat: p.lat, lng: p.lng, completed: p.completed })),
+      polygons: allPolygons.map(p => {
+        const lls = p.layer.getLatLngs()[0];
+        return { name: p.name, coords: lls.map(ll => [ll.lat, ll.lng]) };
+      }),
+      distUnit: distUnit,
+      basemap: currentBasemap
+    };
+    store.put(data, 'session');
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej; });
+  } catch(e) {}
+}
+
+async function restoreSession() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction('state', 'readonly');
+    const store = tx.objectStore('state');
+    const req = store.get('session');
+    const data = await new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = rej; });
+    if (!data) return false;
+
+    // Restore basemap
+    if (data.basemap != null && data.basemap !== currentBasemap) {
+      map.removeLayer(basemaps[basemapOrder[currentBasemap]]);
+      currentBasemap = data.basemap;
+      basemaps[basemapOrder[currentBasemap]].addTo(map);
+    }
+
+    // Restore distance unit
+    if (data.distUnit) {
+      distUnit = data.distUnit;
+      document.getElementById('unit-toggle').textContent = distUnit;
+    }
+
+    // Restore polygons
+    if (data.polygons && data.polygons.length) {
+      data.polygons.forEach(pd => {
+        const latlngs = pd.coords.map(c => L.latLng(c[0], c[1]));
+        const layer = L.polygon(latlngs, { color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4 });
+        tractLayer.addLayer(layer);
+        if (!tractBoundary) tractBoundary = layer;
+        allPolygons.push({ layer: layer, name: pd.name });
+      });
+    }
+
+    // Restore plots
+    if (data.plots && data.plots.length) {
+      data.plots.forEach(pd => {
+        addPlot(pd.id, pd.lat, pd.lng);
+        if (pd.completed) {
+          const plot = plotMarkers.find(p => p.id === pd.id);
+          if (plot) { plot.completed = true; updatePlotMarkerStyle(plot); }
+        }
+      });
+    }
+
+    if (allPolygons.length) {
+      try {
+        const group = L.featureGroup(allPolygons.map(p => p.layer));
+        map.fitBounds(group.getBounds().pad(0.1));
+      } catch(e) {}
+    }
+
+    updateStats();
+    updateTractInfo();
+    updateEmptyHint();
+    return data.plots && data.plots.length > 0;
+  } catch(e) { return false; }
+}
+
+// ── UI Updates ──
+function updateStats() {
+  const total = plotMarkers.length;
+  const done = plotMarkers.filter(p => p.completed).length;
+  document.getElementById('stat-plots').textContent = done + '/' + total;
+  let totalAc = 0;
+  allPolygons.forEach(p => { try { totalAc += calcAcres(p.layer); } catch(e) {} });
+  document.getElementById('stat-acres').textContent = totalAc > 0 ? totalAc.toFixed(1) : '0';
+
+  // Progress bar
+  const pct = total > 0 ? (done / total * 100) : 0;
+  document.getElementById('progress-fill').style.width = pct + '%';
+
+  updateTractInfo();
+}
+
+function updateTractInfo() {
+  const bar = document.getElementById('tract-info-bar');
+  const total = plotMarkers.length;
+  const done = plotMarkers.filter(p => p.completed).length;
+
+  if (allPolygons.length > 0 || total > 0) {
+    bar.classList.add('show');
+    let totalAcres = 0;
+    allPolygons.forEach(p => { try { totalAcres += calcAcres(p.layer); } catch(e) {} });
+    document.getElementById('info-acres').textContent = totalAcres > 0 ? totalAcres.toFixed(1) : '--';
+    document.getElementById('info-plots-done').textContent = done;
+    document.getElementById('info-plots-total').textContent = total;
+    document.getElementById('info-pct').textContent = total > 0 ? Math.round(done / total * 100) + '%' : '0%';
+  } else {
+    bar.classList.remove('show');
+  }
+}
+
+function updateEmptyHint() {
+  const hint = document.getElementById('empty-hint');
+  if (allPolygons.length > 0 || plotMarkers.length > 0) {
+    hint.style.display = 'none';
+  } else {
+    hint.style.display = 'block';
+  }
+}
+
+// ── Service Worker Registration (PWA) ──
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+
+// ── Re-acquire wake lock when app regains visibility ──
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && navTargetId != null) {
+    requestWakeLock();
+  }
+});
+
+// ── Initialize ──
+(async function init() {
+  // Try restoring a previous session
+  const restored = await restoreSession().catch(() => false);
+  if (restored) {
+    toast('Session restored');
+  }
+
+  updateEmptyHint();
+  updateStats();
+
+  // Dismiss loading screen
+  setTimeout(() => {
+    const ls = document.getElementById('loading-screen');
+    ls.classList.add('hidden');
+    setTimeout(() => ls.remove(), 500);
+  }, 600);
+})();
+
+</script>
+</body>
+</html>
