@@ -70,6 +70,7 @@
     justify-content: space-between;
     height: 48px;
     padding: 0 12px;
+    padding-right: max(12px, calc(12px + env(safe-area-inset-right)));
     background: var(--bg-deep);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
@@ -689,14 +690,14 @@
 
   /* Location marker with compass heading */
   .my-location-marker {
-    width: 36px;
-    height: 36px;
+    width: 48px;
+    height: 48px;
     position: relative;
   }
   .my-location-dot {
     position: absolute;
-    top: 10px;
-    left: 10px;
+    top: 16px;
+    left: 16px;
     width: 16px;
     height: 16px;
     background: var(--blue);
@@ -708,16 +709,16 @@
     position: absolute;
     top: 0;
     left: 0;
-    width: 36px;
-    height: 36px;
+    width: 48px;
+    height: 48px;
     transition: transform 0.15s ease-out;
     pointer-events: none;
   }
   .my-location-cone.no-heading { display: none; }
   .my-location-pulse {
     position: absolute;
-    top: 10px;
-    left: 10px;
+    top: 16px;
+    left: 16px;
     width: 16px;
     height: 16px;
     border-radius: 50%;
@@ -3440,11 +3441,11 @@ function updateLocationMarker() {
   if (!myLocationMarker) {
     const icon = L.divIcon({
       className: 'my-location-marker',
-      iconSize: [36, 36],
-      iconAnchor: [18, 18],
+      iconSize: [48, 48],
+      iconAnchor: [24, 24],
       html: '<div class="my-location-pulse"></div>' +
-            '<svg class="my-location-cone no-heading" id="loc-cone" viewBox="0 0 36 36">' +
-              '<path d="M18 2 L26 16 Q18 12 10 16 Z" fill="rgba(52,152,219,0.35)" stroke="none"/>' +
+            '<svg class="my-location-cone no-heading" id="loc-cone" viewBox="0 0 48 48">' +
+              '<path d="M24 2 L36 22 Q24 17 12 22 Z" fill="rgba(52,152,219,0.6)" stroke="rgba(52,152,219,0.9)" stroke-width="1"/>' +
             '</svg>' +
             '<div class="my-location-dot"></div>'
     });
