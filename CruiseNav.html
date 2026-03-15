@@ -3655,14 +3655,14 @@ function generatePlots() {
         const lng = centerLng + (rx / (111320 * Math.cos(centerLat * Math.PI / 180)));
 
         if (pointInPolygon(lat, lng, lls)) {
-          allPoints.push({ id: 0, lat, lng });
+          allPoints.push({ id: 0, lat, lng, iy, ix });
         }
       }
     }
   });
 
-  // Sort all points by walking order across all polygons
-  const sorted = sortByWalkingOrder(allPoints);
+  // Sort all points by cruise line order (serpentine across lines)
+  const sorted = sortByLineOrder(allPoints);
   sorted.forEach((p, i) => {
     p.id = i + 1;
     addPlot(p.id, p.lat, p.lng);
@@ -3677,22 +3677,29 @@ function generatePlots() {
   saveSession();
 }
 
-function sortByWalkingOrder(points) {
+function sortByLineOrder(points) {
   if (points.length <= 1) return points;
-  const sorted = [points[0]];
-  const remaining = points.slice(1);
 
-  while (remaining.length > 0) {
-    const last = sorted[sorted.length - 1];
-    let nearest = 0;
-    let nearestDist = Infinity;
-    for (let i = 0; i < remaining.length; i++) {
-      const d = getDistance(last.lat, last.lng, remaining[i].lat, remaining[i].lng);
-      if (d < nearestDist) { nearestDist = d; nearest = i; }
-    }
-    sorted.push(remaining.splice(nearest, 1)[0]);
+  // Group points by their cruise line (iy index)
+  const lineMap = new Map();
+  for (const p of points) {
+    if (!lineMap.has(p.iy)) lineMap.set(p.iy, []);
+    lineMap.get(p.iy).push(p);
   }
-  return sorted;
+
+  // Sort lines from one side of the tract to the other (ascending iy)
+  const sortedLines = Array.from(lineMap.entries()).sort((a, b) => a[0] - b[0]);
+
+  const result = [];
+  sortedLines.forEach(([, linePts], lineIdx) => {
+    // Sort plots within the line by position along it (ascending ix)
+    linePts.sort((a, b) => a.ix - b.ix);
+    // Serpentine: reverse every other line so numbering flows continuously
+    if (lineIdx % 2 === 1) linePts.reverse();
+    result.push(...linePts);
+  });
+
+  return result;
 }
 
 function pointInPolygon(lat, lng, polygon) {
