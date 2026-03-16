@@ -3070,6 +3070,18 @@ async function ensureCruiseShareCode(cruiseId, cruiseName, preferredCode) {
   return finalCode;
 }
 
+async function tryEnsureCruiseShareCode(cruiseId, cruiseName, preferredCode, options = {}) {
+  try {
+    return await ensureCruiseShareCode(cruiseId, cruiseName, preferredCode);
+  } catch (e) {
+    console.warn('Share code setup failed:', e);
+    if (!options.silent) {
+      toast('Cruise saved, but share code setup failed. Publish firestore.rules to enable sharing.');
+    }
+    return String(preferredCode || '').trim().toUpperCase() || null;
+  }
+}
+
 // â”€â”€ Save cruise to Firestore â”€â”€
 async function saveCruiseToCloud() {
   if (!fb_user) { toast('Sign in first'); return; }
@@ -3109,7 +3121,6 @@ async function saveCruiseToCloud() {
     };
 
     const docRef = await fb_db.collection('cruises').add(cruiseData);
-    await ensureCruiseShareCode(docRef.id, name, cruiseData.shareCode);
 
     // Save this user's plot tree data to sub-collection
     await saveUserPlotData(docRef.id);
@@ -3123,6 +3134,8 @@ async function saveCruiseToCloud() {
       linkJob.cloudCruiseId = docRef.id;
       linkJob.updatedAt = Date.now();
     }
+
+    await tryEnsureCruiseShareCode(docRef.id, name, cruiseData.shareCode);
 
     _lastSyncedPlotHash = getPlotHash();
     updateSyncButton();
@@ -3308,11 +3321,11 @@ async function manualCloudSync() {
         };
 
         const docRef = await fb_db.collection('cruises').add(cruiseData);
-        await ensureCruiseShareCode(docRef.id, name, cruiseData.shareCode);
         await saveUserPlotData(docRef.id);
 
         window._activeCloudCruiseId = docRef.id;
         window._activeCloudCruiseOwner = fb_user.uid;
+        await tryEnsureCruiseShareCode(docRef.id, name, cruiseData.shareCode, { silent: true });
         toast('Saved: ' + name);
       }
 
@@ -3857,11 +3870,11 @@ async function openSharePanel(cruiseId) {
     const doc = await fb_db.collection('cruises').doc(cruiseId).get();
     if (!doc.exists) { toast('Cruise not found'); return; }
     const d = doc.data();
-    const shareCode = await ensureCruiseShareCode(cruiseId, d.name, d.shareCode);
+    const shareCode = await tryEnsureCruiseShareCode(cruiseId, d.name, d.shareCode, { silent: true });
 
     window._shareCruiseId = cruiseId;
     document.getElementById('share-cruise-name').textContent = d.name;
-    document.getElementById('share-code-display').value = shareCode || 'N/A';
+    document.getElementById('share-code-display').value = shareCode || d.shareCode || 'N/A';
 
     const usersList = document.getElementById('shared-users-list');
     const sharedUsers = Array.isArray(d.sharedWith) ? Array.from(new Set(d.sharedWith.map(normalizeEmail).filter(Boolean))) : [];
