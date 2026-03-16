@@ -2829,6 +2829,13 @@ function sawtimberVol(dbh, logs, rule, formClass) {
 // Backward compat wrapper
 function scribnerVol(dbh, logs, formClass) { return sawtimberVol(dbh, logs, 'scribner', formClass); }
 
+// Convert total tree height (ft) to number of 8-foot sticks
+function heightToSticks(heightFt) {
+  if (!heightFt || heightFt <= 0) return 1;
+  const sticks = Math.floor(heightFt / 8);
+  return Math.max(1, Math.min(sticks, 7));
+}
+
 // Pulpwood: cords from DBH + total height (ft), converted to sticks internally
 function pulpwoodCords(dbh, heightFt) {
   const d = Math.round(dbh);
@@ -3002,6 +3009,10 @@ function tallyBuildSticks() {
     '<div class="ht-btn' + (h === tallySelHeight ? ' sel' : '') + '" onclick="tallyPickHeight(' + h + ')">' + h + "'" + '</div>'
   ).join('');
   document.getElementById('tally-ht-note').textContent = '';
+}
+
+function tallyBuildHeight() {
+  tallyBuildSticks();
 }
 
 function tallyPickHeight(h) {
