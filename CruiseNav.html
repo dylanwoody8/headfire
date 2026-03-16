@@ -2895,6 +2895,48 @@ function generateShareCode() {
   return code;
 }
 
+function cloneJson(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function parseJsonArray(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.warn('Invalid JSON array payload:', e);
+    return [];
+  }
+}
+
+function getPolygonSignature(name, coords) {
+  return (name || '') + '::' + (coords || []).map(c => {
+    const lat = Number(c[0]);
+    const lng = Number(c[1]);
+    return (Number.isFinite(lat) ? lat.toFixed(6) : '0.000000') + ',' +
+      (Number.isFinite(lng) ? lng.toFixed(6) : '0.000000');
+  }).join('|');
+}
+
+function addPolygonToMap(name, coords) {
+  if (!Array.isArray(coords) || coords.length === 0) return null;
+  const latlngs = coords.map(c => L.latLng(c[0], c[1]));
+  const layer = L.polygon(latlngs, { color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4 });
+  tractLayer.addLayer(layer);
+  if (!tractBoundary) tractBoundary = layer;
+  allPolygons.push({ layer: layer, name: name });
+  return layer;
+}
+
+function formatCloudSyncError(action, error) {
+  const msg = String((error && error.message) || error || '').trim();
+  if (/missing or insufficient permissions|permission[- ]denied/i.test(msg)) {
+    return action + ' failed. Check Firestore rules for cruises and cruises/*/userData.';
+  }
+  return msg ? (action + ' failed: ' + msg) : (action + ' failed.');
+}
+
 // â”€â”€ Save cruise to Firestore â”€â”€
 async function saveCruiseToCloud() {
   if (!fb_user) { toast('Sign in first'); return; }
@@ -2955,7 +2997,7 @@ async function saveCruiseToCloud() {
     closePanel();
   } catch(e) {
     console.error('Save error:', e);
-    toast('Save failed');
+    toast(formatCloudSyncError('Save', e));
   }
 }
 
@@ -2964,7 +3006,7 @@ async function saveUserPlotData(cruiseId) {
   if (!fb_user || !cruiseId) return;
   const myPlots = plotMarkers
     .filter(p => p.completed)
-    .map(p => ({ id: p.id, lat: p.lat, lng: p.lng, completed: true, trees: p.trees || [], noTally: p.noTally || false }));
+    .map(p => ({ id: p.id, lat: p.lat, lng: p.lng, completed: true, trees: cloneJson(p.trees || []), noTally: p.noTally || false }));
   console.log('[PUSH] saveUserPlotData: cruiseId=' + cruiseId + ', completedPlots=' + myPlots.length + ', plotIds=' + myPlots.map(p=>p.id).join(',') + ', treeCounts=' + myPlots.map(p=>(p.trees||[]).length).join(','));
 
   try {
@@ -2982,6 +3024,7 @@ async function saveUserPlotData(cruiseId) {
     console.error('Save user data error:', e);
     // Mark as pending since sync failed (likely offline)
     setSyncPending(true);
+    throw e;
   }
 }
 
@@ -3041,6 +3084,7 @@ async function manualCloudSync() {
   const btn = document.getElementById('btn-sync');
   btn.classList.add('sync-active');
   btn.classList.remove('sync-pending');
+  const activeJob = allJobs.find(j => j.id === activeJobId);
 
   console.log('[SYNC] Starting. cloudCruiseId=' + (window._activeCloudCruiseId || 'NONE') + ', plots=' + plotMarkers.length + ', completed=' + plotMarkers.filter(p=>p.completed).length);
 
@@ -3048,29 +3092,42 @@ async function manualCloudSync() {
     if (!window._activeCloudCruiseId) {
       // No cloud cruise linked yet. Check if one already exists in Firestore for this user
       // before creating a duplicate.
-      const activeJob = allJobs.find(j => j.id === activeJobId);
       const name = (activeJob ? activeJob.name : null) || 'Cruise ' + new Date().toLocaleDateString();
 
-      // Search for an existing cruise with same owner and same plot count
+      // Search for an existing cruise with the same owner and the best local match
+      // so a stale device re-links instead of creating duplicates.
       let existingCruiseId = null;
       try {
+        const localPlotIds = new Set(plotMarkers.map(p => String(p.id)));
+        const normalizedName = String(name || '').trim().toLowerCase();
         const existingSnap = await fb_db.collection('cruises')
           .where('ownerId', '==', fb_user.uid)
-          .where('plotCount', '==', plotMarkers.length)
           .get({ source: 'server' });
 
         if (!existingSnap.empty) {
-          // Found existing cruise(s). Pick the most recently updated one.
           let bestDoc = null;
+          let bestScore = -1;
           let bestTime = 0;
           existingSnap.forEach(doc => {
             const d = doc.data();
+            const cloudPlots = parseJsonArray(d.plotsJson);
+            const overlap = cloudPlots.reduce((count, cp) => count + (localPlotIds.has(String(cp.id)) ? 1 : 0), 0);
+            const cloudName = String(d.name || '').trim().toLowerCase();
+            let score = 0;
+            if (normalizedName && cloudName === normalizedName) score += 1000;
+            if (overlap > 0) score += overlap * 10;
+            if ((d.polyCount || 0) === allPolygons.length) score += 25;
+            if ((d.plotCount != null ? d.plotCount : cloudPlots.length) === plotMarkers.length) score += 10;
             const t = d.updatedAt ? d.updatedAt.toMillis() : 0;
-            if (t > bestTime) { bestTime = t; bestDoc = doc; }
+            if (score > bestScore || (score === bestScore && t > bestTime)) {
+              bestScore = score;
+              bestTime = t;
+              bestDoc = doc;
+            }
           });
-          if (bestDoc) {
+          if (bestDoc && (bestScore > 0 || existingSnap.size === 1)) {
             existingCruiseId = bestDoc.id;
-            console.log('[SYNC] Found existing cloud cruise: ' + existingCruiseId + ', linking instead of creating new');
+            console.log('[SYNC] Found existing cloud cruise: ' + existingCruiseId + ', linking instead of creating new (score=' + bestScore + ')');
           }
         }
       } catch(searchErr) {
@@ -3086,7 +3143,8 @@ async function manualCloudSync() {
           activeJob.updatedAt = Date.now();
         }
         toast('Linked to existing cloud cruise');
-        // Now push our data to it
+        // Pull first so a stale device does not overwrite newer cloud data.
+        await pullOtherUsersPlotData(existingCruiseId, { silent: true });
         await updateCruiseInCloud(existingCruiseId);
       } else {
         // No existing cruise found, create a new one
@@ -3131,6 +3189,7 @@ async function manualCloudSync() {
     } else {
       // Cloud cruise exists, sync everything
       toast('Syncing to ' + window._activeCloudCruiseId.substring(0,6) + '...');
+      await pullOtherUsersPlotData(window._activeCloudCruiseId, { silent: true });
       console.log('[SYNC] Push to existing cruise: ' + window._activeCloudCruiseId + ', owner=' + (window._activeCloudCruiseOwner === fb_user.uid ? 'SELF' : 'OTHER'));
       if (window._activeCloudCruiseOwner === fb_user.uid) {
         await updateCruiseInCloud(window._activeCloudCruiseId);
@@ -3156,14 +3215,15 @@ async function manualCloudSync() {
   } catch(e) {
     btn.classList.remove('sync-active');
     setSyncPending(true);
-    toast('Sync failed. Will retry.');
+    toast(formatCloudSyncError('Sync', e));
     console.error('Manual sync error:', e);
   }
 }
 
 // Full pull from Firestore: reads main cruise doc + all userData, merges onto local state
-async function pullOtherUsersPlotData(cruiseId) {
-  if (!fb_user || !cruiseId) return;
+async function pullOtherUsersPlotData(cruiseId, options = {}) {
+  if (!fb_user || !cruiseId) return { newPlotsCount: 0, newBoundariesCount: 0, updatedPlotsCount: 0 };
+  const silent = !!options.silent;
   console.log('[PULL] Starting pull from cruise: ' + cruiseId);
   try {
     // Fetch the main cruise document (plot locations, boundaries) AND userData
@@ -3172,22 +3232,26 @@ async function pullOtherUsersPlotData(cruiseId) {
       fb_db.collection('cruises').doc(cruiseId).collection('userData').get({ source: 'server' })
     ]);
 
-    if (!cruiseDoc.exists) { console.log('[PULL] Cruise doc not found!'); return; }
+    if (!cruiseDoc.exists) { console.log('[PULL] Cruise doc not found!'); return { newPlotsCount: 0, newBoundariesCount: 0, updatedPlotsCount: 0 }; }
     const d = cruiseDoc.data();
+    if (d.ownerId) window._activeCloudCruiseOwner = d.ownerId;
     console.log('[PULL] Got cruise doc. plotsJson length=' + (d.plotsJson||'').length + ', userData docs=' + userSnap.size);
 
     // Track what's new
     let newPlotsCount = 0;
+    let newBoundariesCount = 0;
     let updatedPlotsCount = 0;
 
     // Sync plot locations from the main doc (new plots added on other devices)
     if (d.plotsJson) {
-      const cloudPlotLocs = JSON.parse(d.plotsJson);
+      const cloudPlotLocs = parseJsonArray(d.plotsJson);
+      const existingPlotIds = new Set(plotMarkers.map(p => String(p.id)));
       cloudPlotLocs.forEach(cp => {
-        const exists = plotMarkers.find(p => p.id === cp.id || p.id === parseInt(cp.id));
-        if (!exists) {
+        const plotKey = String(cp.id);
+        if (!existingPlotIds.has(plotKey)) {
           // New plot location from cloud that doesn't exist locally
           addPlot(cp.id, cp.lat, cp.lng);
+          existingPlotIds.add(plotKey);
           newPlotsCount++;
         }
       });
@@ -3195,21 +3259,19 @@ async function pullOtherUsersPlotData(cruiseId) {
 
     // Sync boundaries from the main doc
     if (d.polygonsJson) {
-      const cloudPolys = JSON.parse(d.polygonsJson);
-      // Only add new boundaries (simple count check, could be smarter)
-      if (cloudPolys.length > allPolygons.length) {
-        // Clear and rebuild boundaries from cloud
-        tractLayer.clearLayers();
-        tractBoundary = null;
-        allPolygons = [];
-        cloudPolys.forEach(pd => {
-          const latlngs = pd.coords.map(c => L.latLng(c[0], c[1]));
-          const layer = L.polygon(latlngs, { color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4 });
-          tractLayer.addLayer(layer);
-          if (!tractBoundary) tractBoundary = layer;
-          allPolygons.push({ layer: layer, name: pd.name });
-        });
-      }
+      const cloudPolys = parseJsonArray(d.polygonsJson);
+      const existingPolySigs = new Set(allPolygons.map(p => {
+        const lls = p.layer.getLatLngs()[0] || [];
+        return getPolygonSignature(p.name, lls.map(ll => [ll.lat, ll.lng]));
+      }));
+      cloudPolys.forEach(pd => {
+        const sig = getPolygonSignature(pd.name, pd.coords || []);
+        if (!existingPolySigs.has(sig) && Array.isArray(pd.coords) && pd.coords.length) {
+          addPolygonToMap(pd.name, pd.coords);
+          existingPolySigs.add(sig);
+          newBoundariesCount++;
+        }
+      });
     }
 
     // Build a map of all completed plots from all users in the cloud
@@ -3221,7 +3283,7 @@ async function pullOtherUsersPlotData(cruiseId) {
       const cruiserName = ud.userName || ud.userEmail || udoc.id;
       contributors.push(cruiserName);
 
-      const userPlots = JSON.parse(ud.plots || '[]');
+      const userPlots = parseJsonArray(ud.plots);
       const docTime = ud.updatedAt ? ud.updatedAt.toMillis() : 0;
 
       userPlots.forEach(up => {
@@ -3251,7 +3313,7 @@ async function pullOtherUsersPlotData(cruiseId) {
 
       if (!local.completed) {
         // Local plot is pending, apply cloud data
-        local.trees = JSON.parse(JSON.stringify(data.trees));
+        local.trees = cloneJson(data.trees || []);
         local.completed = true;
         local.noTally = data.noTally || false;
         local.cruiser = data.cruiser;
@@ -3267,7 +3329,7 @@ async function pullOtherUsersPlotData(cruiseId) {
         // Update if: cloud has trees and local doesn't, or cloud is from self with different data
         if ((localIsNoTally && cloudTreeCount > 0) ||
             (data.fromSelf && JSON.stringify(local.trees || []) !== JSON.stringify(data.trees || []))) {
-          local.trees = JSON.parse(JSON.stringify(data.trees));
+          local.trees = cloneJson(data.trees || []);
           local.noTally = data.noTally || false;
           local.cruiser = data.cruiser;
           updatePlotMarkerStyle(local);
@@ -3276,25 +3338,28 @@ async function pullOtherUsersPlotData(cruiseId) {
       }
     });
 
-    window._cloudContributors = contributors;
+    window._cloudContributors = Array.from(new Set(contributors));
 
-    console.log('[PULL] Result: newPlots=' + newPlotsCount + ', updatedPlots=' + updatedPlotsCount);
+    console.log('[PULL] Result: newPlots=' + newPlotsCount + ', newBoundaries=' + newBoundariesCount + ', updatedPlots=' + updatedPlotsCount);
 
-    if (newPlotsCount > 0 || updatedPlotsCount > 0) {
+    if (newPlotsCount > 0 || newBoundariesCount > 0 || updatedPlotsCount > 0) {
       updateStats();
       updateTractInfo();
       updateEmptyHint();
       refreshPolyChecklist();
       const parts = [];
       if (newPlotsCount > 0) parts.push(newPlotsCount + ' new plot' + (newPlotsCount > 1 ? 's' : ''));
+      if (newBoundariesCount > 0) parts.push(newBoundariesCount + ' new boundar' + (newBoundariesCount > 1 ? 'ies' : 'y'));
       if (updatedPlotsCount > 0) parts.push(updatedPlotsCount + ' updated');
-      toast(parts.join(', ') + ' from cloud');
+      if (!silent) toast(parts.join(', ') + ' from cloud');
     } else {
       console.log('[PULL] No changes found');
     }
+    return { newPlotsCount, newBoundariesCount, updatedPlotsCount };
   } catch(e) {
     console.error('[PULL] FAILED:', e);
-    toast('Pull failed: ' + e.message);
+    if (!silent) toast(formatCloudSyncError('Pull', e));
+    throw e;
   }
 }
 
@@ -3330,6 +3395,8 @@ async function updateCruiseInCloud(cruiseId) {
 
   } catch(e) {
     console.error('Update error:', e);
+    setSyncPending(true);
+    throw e;
   }
 }
 
@@ -3462,35 +3529,35 @@ async function loadCruiseFromCloud(cruiseId) {
 
       // Restore polygons from main doc
       if (d.polygonsJson) {
-        JSON.parse(d.polygonsJson).forEach(pd => {
-          const latlngs = pd.coords.map(c => L.latLng(c[0], c[1]));
-          const layer = L.polygon(latlngs, { color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4 });
-          tractLayer.addLayer(layer);
-          if (!tractBoundary) tractBoundary = layer;
-          allPolygons.push({ layer: layer, name: pd.name });
-        });
+        parseJsonArray(d.polygonsJson).forEach(pd => addPolygonToMap(pd.name, pd.coords));
       }
 
       // Restore all plot locations from main doc
       if (d.plotsJson) {
-        JSON.parse(d.plotsJson).forEach(pd => addPlot(pd.id, pd.lat, pd.lng));
+        parseJsonArray(d.plotsJson).forEach(pd => addPlot(pd.id, pd.lat, pd.lng));
       }
 
-      // Merge pre-fetched user tree data from sub-collection
-      const mergedPlots = {}; // plotId -> { trees, cruiser }
+      // Merge pre-fetched user tree data from sub-collection, preferring the newest edit per plot.
+      const mergedPlots = {}; // plotId -> { trees, cruiser, updatedAt }
       const contributors = [];
 
       userSnap.forEach(udoc => {
         const ud = udoc.data();
         contributors.push(ud.userName || ud.userEmail || udoc.id);
-        const userPlots = JSON.parse(ud.plots || '[]');
+        const userPlots = parseJsonArray(ud.plots);
+        const docTime = ud.updatedAt ? ud.updatedAt.toMillis() : 0;
         userPlots.forEach(up => {
           if (up.completed) {
-            mergedPlots[up.id] = {
-              trees: up.trees || [],
-              noTally: up.noTally || false,
-              cruiser: ud.userName || ud.userEmail || udoc.id
-            };
+            const plotKey = String(up.id);
+            const existing = mergedPlots[plotKey];
+            if (!existing || docTime > (existing.updatedAt || 0)) {
+              mergedPlots[plotKey] = {
+                trees: up.trees || [],
+                noTally: up.noTally || false,
+                cruiser: ud.userName || ud.userEmail || udoc.id,
+                updatedAt: docTime
+              };
+            }
           }
         });
       });
@@ -3499,7 +3566,7 @@ async function loadCruiseFromCloud(cruiseId) {
       Object.entries(mergedPlots).forEach(([plotId, data]) => {
         const plot = plotMarkers.find(p => p.id === parseInt(plotId));
         if (plot) {
-          plot.trees = JSON.parse(JSON.stringify(data.trees));
+          plot.trees = cloneJson(data.trees || []);
           plot.completed = true;
           plot.noTally = data.noTally || false;
           plot.cruiser = data.cruiser;
@@ -6186,6 +6253,7 @@ function scheduleCloudSync() {
   _cloudSyncTimer = setTimeout(async () => {
     _cloudSyncTimer = null;
     try {
+      await pullOtherUsersPlotData(window._activeCloudCruiseId, { silent: true });
       if (window._activeCloudCruiseOwner === fb_user.uid) {
         await updateCruiseInCloud(window._activeCloudCruiseId);
       } else {
