@@ -2979,6 +2979,97 @@ function revokeLocalSharedAccess(cruiseId, email = getCurrentUserEmail()) {
   if (key && _localSharedAccess[key]) delete _localSharedAccess[key];
 }
 
+function getShareCodeDocRef(code) {
+  const normalizedCode = String(code || '').trim().toUpperCase();
+  if (!normalizedCode) return null;
+  return fb_db.collection('shareCodes').doc(normalizedCode);
+}
+
+async function claimShareCode(code, cruiseId, cruiseName) {
+  if (!fb_db || !fb_user) throw new Error('Sign in first');
+  const normalizedCode = String(code || '').trim().toUpperCase();
+  const ref = getShareCodeDocRef(normalizedCode);
+  if (!ref) throw new Error('Invalid share code');
+
+  await fb_db.runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    if (snap.exists) {
+      const data = snap.data() || {};
+      if (data.cruiseId && data.cruiseId !== cruiseId) {
+        throw new Error('SHARE_CODE_IN_USE');
+      }
+    }
+
+    const payload = {
+      shareCode: normalizedCode,
+      cruiseId: cruiseId,
+      cruiseName: cruiseName || 'Shared Cruise',
+      ownerId: fb_user.uid,
+      ownerEmail: getCurrentUserEmail(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    if (!snap.exists) {
+      payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+    }
+    tx.set(ref, payload, { merge: true });
+  });
+
+  return normalizedCode;
+}
+
+async function deleteShareCodeRecord(code, cruiseId) {
+  const ref = getShareCodeDocRef(code);
+  if (!ref) return;
+  try {
+    const snap = await ref.get({ source: 'server' });
+    if (!snap.exists) return;
+    const data = snap.data() || {};
+    if (!cruiseId || !data.cruiseId || data.cruiseId === cruiseId) {
+      await ref.delete();
+    }
+  } catch (e) {
+    console.warn('Delete share code record failed:', e);
+  }
+}
+
+async function ensureCruiseShareCode(cruiseId, cruiseName, preferredCode) {
+  if (!fb_db || !fb_user || !cruiseId) throw new Error('Share code unavailable');
+
+  const attempted = new Set();
+  const candidates = [];
+  const preferred = String(preferredCode || '').trim().toUpperCase();
+  if (preferred) candidates.push(preferred);
+
+  while (candidates.length < 12) {
+    const candidate = generateShareCode();
+    if (!attempted.has(candidate) && !candidates.includes(candidate)) candidates.push(candidate);
+  }
+
+  let finalCode = '';
+  for (const candidate of candidates) {
+    attempted.add(candidate);
+    try {
+      finalCode = await claimShareCode(candidate, cruiseId, cruiseName);
+      break;
+    } catch (e) {
+      if (String((e && e.message) || '').includes('SHARE_CODE_IN_USE')) continue;
+      throw e;
+    }
+  }
+
+  if (!finalCode) throw new Error('Could not reserve a share code');
+
+  await fb_db.collection('cruises').doc(cruiseId).set({
+    shareCode: finalCode
+  }, { merge: true });
+
+  if (preferred && preferred !== finalCode) {
+    await deleteShareCodeRecord(preferred, cruiseId);
+  }
+
+  return finalCode;
+}
+
 // â”€â”€ Save cruise to Firestore â”€â”€
 async function saveCruiseToCloud() {
   if (!fb_user) { toast('Sign in first'); return; }
@@ -3018,6 +3109,7 @@ async function saveCruiseToCloud() {
     };
 
     const docRef = await fb_db.collection('cruises').add(cruiseData);
+    await ensureCruiseShareCode(docRef.id, name, cruiseData.shareCode);
 
     // Save this user's plot tree data to sub-collection
     await saveUserPlotData(docRef.id);
@@ -3216,6 +3308,7 @@ async function manualCloudSync() {
         };
 
         const docRef = await fb_db.collection('cruises').add(cruiseData);
+        await ensureCruiseShareCode(docRef.id, name, cruiseData.shareCode);
         await saveUserPlotData(docRef.id);
 
         window._activeCloudCruiseId = docRef.id;
@@ -3746,7 +3839,11 @@ async function deleteCruiseFromCloud(cruiseId) {
   const ok = await showConfirm('Delete this cruise from the cloud? This cannot be undone.');
   if (!ok) return;
   try {
-    await fb_db.collection('cruises').doc(cruiseId).delete();
+    const cruiseRef = fb_db.collection('cruises').doc(cruiseId);
+    const cruiseDoc = await cruiseRef.get({ source: 'server' });
+    const shareCode = cruiseDoc.exists ? (cruiseDoc.data().shareCode || '') : '';
+    await cruiseRef.delete();
+    await deleteShareCodeRecord(shareCode, cruiseId);
     toast('Cruise deleted');
     loadMyCruises();
   } catch(e) {
@@ -3760,10 +3857,11 @@ async function openSharePanel(cruiseId) {
     const doc = await fb_db.collection('cruises').doc(cruiseId).get();
     if (!doc.exists) { toast('Cruise not found'); return; }
     const d = doc.data();
+    const shareCode = await ensureCruiseShareCode(cruiseId, d.name, d.shareCode);
 
     window._shareCruiseId = cruiseId;
     document.getElementById('share-cruise-name').textContent = d.name;
-    document.getElementById('share-code-display').value = d.shareCode || 'N/A';
+    document.getElementById('share-code-display').value = shareCode || 'N/A';
 
     const usersList = document.getElementById('shared-users-list');
     const sharedUsers = Array.isArray(d.sharedWith) ? Array.from(new Set(d.sharedWith.map(normalizeEmail).filter(Boolean))) : [];
@@ -3806,41 +3904,25 @@ async function joinCruiseByCode() {
   if (!code || code.length < 4) { toast('Enter a valid code'); return; }
 
   try {
-    const snap = await fb_db.collection('cruises').where('shareCode', '==', code).limit(1).get();
-    if (snap.empty) { toast('Cruise not found'); return; }
+    const shareRef = getShareCodeDocRef(code);
+    if (!shareRef) { toast('Enter a valid code'); return; }
 
-    const doc = snap.docs[0];
-    const d = doc.data();
+    const shareSnap = await shareRef.get({ source: 'server' });
+    if (!shareSnap.exists) { toast('Cruise not found'); return; }
+    const shareData = shareSnap.data() || {};
+    const cruiseId = shareData.cruiseId;
+    if (!cruiseId) { toast('Share code is invalid'); return; }
+    const cruiseName = shareData.cruiseName || 'Cruise';
 
-    if (d.ownerId === fb_user.uid) {
+    if (shareData.ownerId === fb_user.uid) {
       toast('This is your own cruise');
       return;
     }
 
-    const rawSharedWith = Array.isArray(d.sharedWith) ? d.sharedWith : [];
-    const sharedWith = rawSharedWith.map(normalizeEmail).filter(Boolean);
-    if (sharedWith.includes(userEmail)) {
-      grantLocalSharedAccess(doc.id, code, d.name, userEmail);
-      if (!rawSharedWith.includes(userEmail)) {
-        try {
-          await fb_db.collection('cruises').doc(doc.id).update({
-            sharedWith: firebase.firestore.FieldValue.arrayUnion(userEmail)
-          });
-        } catch (normalizeJoinErr) {
-          if (!isPermissionDeniedError(normalizeJoinErr)) throw normalizeJoinErr;
-          console.warn('Could not normalize sharedWith email casing; keeping local share-code access.', normalizeJoinErr);
-        }
-      }
-      saveSession();
-      toast('Already shared with you');
-      loadCruiseFromCloud(doc.id, { prefetchedData: d, skipAccessCheck: true });
-      return;
-    }
-
+    const cruiseRef = fb_db.collection('cruises').doc(cruiseId);
     let usedLocalFallback = false;
     try {
-      // Add user to sharedWith when rules allow it.
-      await fb_db.collection('cruises').doc(doc.id).update({
+      await cruiseRef.update({
         sharedWith: firebase.firestore.FieldValue.arrayUnion(userEmail)
       });
     } catch (joinWriteErr) {
@@ -3849,12 +3931,23 @@ async function joinCruiseByCode() {
       usedLocalFallback = true;
     }
 
-    grantLocalSharedAccess(doc.id, code, d.name, userEmail);
+    let d = null;
+    try {
+      const cruiseSnap = await cruiseRef.get({ source: 'server' });
+      if (!cruiseSnap.exists) { toast('Cruise not found'); return; }
+      d = cruiseSnap.data();
+    } catch (readErr) {
+      if (!usedLocalFallback || !isPermissionDeniedError(readErr)) throw readErr;
+      toast('Join is still blocked. Publish the updated Firestore rules, then try again.');
+      return;
+    }
+
+    grantLocalSharedAccess(cruiseId, code, d.name || cruiseName, userEmail);
     saveSession();
 
     document.getElementById('join-code-input').value = '';
-    toast((usedLocalFallback ? 'Opened with share code: ' : 'Joined: ') + d.name);
-    loadCruiseFromCloud(doc.id, { prefetchedData: d, skipAccessCheck: true });
+    toast((usedLocalFallback ? 'Opened with share code: ' : 'Joined: ') + (d.name || cruiseName));
+    loadCruiseFromCloud(cruiseId, { prefetchedData: d, skipAccessCheck: true });
   } catch(e) {
     console.error(e);
     toast(formatCloudSyncError('Join', e));
