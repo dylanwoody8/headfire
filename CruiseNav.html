@@ -2349,8 +2349,9 @@ function updateAuthUI() {
     signedIn.style.display = 'none';
     if (cloudBtn) cloudBtn.classList.remove('logged-in');
   }
-  // Also sync cloud panel if it's open
+  // Also sync cloud panel and sync button if it's open
   updateCloudPanelUI();
+  updateSyncButton();
 }
 
 async function firebaseSignIn() {
@@ -2995,18 +2996,13 @@ function setSyncPending(pending) {
   const badge = document.getElementById('sync-badge');
   if (!btn) return;
 
-  if (window._activeCloudCruiseId) {
-    btn.style.display = 'flex';
-    if (pending) {
-      btn.classList.add('sync-pending');
-      btn.classList.remove('sync-done');
-      badge.style.display = 'block';
-    } else {
-      btn.classList.remove('sync-pending');
-      badge.style.display = 'none';
-    }
+  if (pending) {
+    btn.classList.add('sync-pending');
+    btn.classList.remove('sync-done');
+    if (badge) badge.style.display = 'block';
   } else {
-    btn.style.display = 'none';
+    btn.classList.remove('sync-pending');
+    if (badge) badge.style.display = 'none';
   }
 }
 
@@ -3018,11 +3014,12 @@ function checkSyncNeeded() {
   }
 }
 
-// Show sync button when a cloud cruise is active
+// Show sync button when signed in and there is data to sync
 function updateSyncButton() {
   const btn = document.getElementById('btn-sync');
   if (!btn) return;
-  if (window._activeCloudCruiseId && fb_user) {
+  const hasData = allPolygons.length > 0 || plotMarkers.length > 0;
+  if (fb_user && hasData) {
     btn.style.display = 'flex';
   } else {
     btn.style.display = 'none';
@@ -3030,27 +3027,65 @@ function updateSyncButton() {
 }
 
 async function manualCloudSync() {
-  if (!window._activeCloudCruiseId) { toast('No cloud cruise active'); return; }
   if (!fb_user) { toast('Sign in first'); return; }
+  if (allPolygons.length === 0 && plotMarkers.length === 0) { toast('Nothing to sync'); return; }
 
   const btn = document.getElementById('btn-sync');
   btn.classList.add('sync-active');
   btn.classList.remove('sync-pending');
-  toast('Syncing...');
 
   try {
-    if (window._activeCloudCruiseOwner === fb_user.uid) {
-      await updateCruiseInCloud(window._activeCloudCruiseId);
+    if (!window._activeCloudCruiseId) {
+      // No cloud cruise linked yet, auto-create one
+      toast('Saving to cloud...');
+      const activeJob = allJobs.find(j => j.id === activeJobId);
+      const name = (activeJob ? activeJob.name : null) || 'Cruise ' + new Date().toLocaleDateString();
+
+      const cruiseData = {
+        name: name,
+        ownerId: fb_user.uid,
+        ownerName: fb_user.displayName || fb_user.email,
+        ownerEmail: fb_user.email,
+        shareCode: generateShareCode(),
+        sharedWith: [],
+        baf: (activeJob && activeJob.baf) || 10,
+        logRule: (activeJob && activeJob.logRule) || 'scribner',
+        species: (activeJob && activeJob.species) || [],
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        polygonsJson: JSON.stringify(allPolygons.map(p => {
+          const lls = p.layer.getLatLngs()[0];
+          return { name: p.name, coords: lls.map(ll => [ll.lat, ll.lng]) };
+        })),
+        plotsJson: JSON.stringify(plotMarkers.map(p => ({ id: p.id, lat: p.lat, lng: p.lng }))),
+        plotCount: plotMarkers.length,
+        polyCount: allPolygons.length,
+        completedCount: plotMarkers.filter(p => p.completed).length,
+        distUnit: distUnit,
+        basemap: currentBasemap
+      };
+
+      const docRef = await fb_db.collection('cruises').add(cruiseData);
+      await saveUserPlotData(docRef.id);
+
+      window._activeCloudCruiseId = docRef.id;
+      window._activeCloudCruiseOwner = fb_user.uid;
     } else {
-      await saveUserPlotData(window._activeCloudCruiseId);
+      // Cloud cruise exists, sync everything
+      toast('Syncing...');
+      if (window._activeCloudCruiseOwner === fb_user.uid) {
+        await updateCruiseInCloud(window._activeCloudCruiseId);
+      } else {
+        await saveUserPlotData(window._activeCloudCruiseId);
+      }
     }
+
     _lastSyncedPlotHash = getPlotHash();
     setSyncPending(false);
     btn.classList.remove('sync-active');
     btn.classList.add('sync-done');
     toast('Synced!');
     vibrate([50, 30, 50]);
-    // Flash green then return to normal
     setTimeout(() => { btn.classList.remove('sync-done'); }, 2000);
   } catch(e) {
     btn.classList.remove('sync-active');
@@ -6335,6 +6370,7 @@ function updateStats() {
   const pct = total > 0 ? (done / total * 100) : 0;
   document.getElementById('progress-fill').style.width = pct + '%';
 
+  updateSyncButton();
   updateTractInfo();
 }
 
