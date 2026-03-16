@@ -3113,19 +3113,58 @@ async function manualCloudSync() {
   }
 }
 
-// Pull all users' completed plot data from Firestore and merge locally
-// This includes your own data from other devices and other cruisers' data
+// Full pull from Firestore: reads main cruise doc + all userData, merges onto local state
 async function pullOtherUsersPlotData(cruiseId) {
   if (!fb_user || !cruiseId) return;
   try {
-    const userSnap = await fb_db.collection('cruises').doc(cruiseId).collection('userData').get({ source: 'server' });
+    // Fetch the main cruise document (plot locations, boundaries) AND userData
+    const [cruiseDoc, userSnap] = await Promise.all([
+      fb_db.collection('cruises').doc(cruiseId).get({ source: 'server' }),
+      fb_db.collection('cruises').doc(cruiseId).collection('userData').get({ source: 'server' })
+    ]);
+
+    if (!cruiseDoc.exists) return;
+    const d = cruiseDoc.data();
+
+    // Track what's new
     let newPlotsCount = 0;
     let updatedPlotsCount = 0;
-    const contributors = [];
+
+    // Sync plot locations from the main doc (new plots added on other devices)
+    if (d.plotsJson) {
+      const cloudPlotLocs = JSON.parse(d.plotsJson);
+      cloudPlotLocs.forEach(cp => {
+        const exists = plotMarkers.find(p => p.id === cp.id || p.id === parseInt(cp.id));
+        if (!exists) {
+          // New plot location from cloud that doesn't exist locally
+          addPlot(cp.id, cp.lat, cp.lng);
+          newPlotsCount++;
+        }
+      });
+    }
+
+    // Sync boundaries from the main doc
+    if (d.polygonsJson) {
+      const cloudPolys = JSON.parse(d.polygonsJson);
+      // Only add new boundaries (simple count check, could be smarter)
+      if (cloudPolys.length > allPolygons.length) {
+        // Clear and rebuild boundaries from cloud
+        tractLayer.clearLayers();
+        tractBoundary = null;
+        allPolygons = [];
+        cloudPolys.forEach(pd => {
+          const latlngs = pd.coords.map(c => L.latLng(c[0], c[1]));
+          const layer = L.polygon(latlngs, { color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4 });
+          tractLayer.addLayer(layer);
+          if (!tractBoundary) tractBoundary = layer;
+          allPolygons.push({ layer: layer, name: pd.name });
+        });
+      }
+    }
 
     // Build a map of all completed plots from all users in the cloud
-    // If multiple users completed the same plot, use the most recent one
     const cloudPlots = {}; // plotId -> { trees, noTally, cruiser, updatedAt }
+    const contributors = [];
 
     userSnap.forEach(udoc => {
       const ud = udoc.data();
@@ -3137,10 +3176,10 @@ async function pullOtherUsersPlotData(cruiseId) {
 
       userPlots.forEach(up => {
         if (!up.completed) return;
-        const existing = cloudPlots[up.id];
-        // Keep the most recently updated version if there's a conflict
+        const plotKey = String(up.id);
+        const existing = cloudPlots[plotKey];
         if (!existing || docTime > (existing.updatedAt || 0)) {
-          cloudPlots[up.id] = {
+          cloudPlots[plotKey] = {
             trees: up.trees || [],
             noTally: up.noTally || false,
             cruiser: cruiserName,
@@ -3151,9 +3190,10 @@ async function pullOtherUsersPlotData(cruiseId) {
       });
     });
 
-    // Merge cloud data onto local plot markers
+    // Merge completed plot data onto local plot markers
     Object.entries(cloudPlots).forEach(([plotId, data]) => {
-      const local = plotMarkers.find(p => p.id === parseInt(plotId) || p.id === plotId);
+      const numId = parseInt(plotId);
+      const local = plotMarkers.find(p => p.id === numId || p.id === plotId);
       if (!local) return;
 
       if (!local.completed) {
@@ -3163,22 +3203,24 @@ async function pullOtherUsersPlotData(cruiseId) {
         local.noTally = data.noTally || false;
         local.cruiser = data.cruiser;
         updatePlotMarkerStyle(local);
-        newPlotsCount++;
-      } else if (data.fromSelf) {
-        // Local plot IS completed AND the cloud data is from this same user (different device)
-        // Check if cloud has newer/different tree data
-        const localTreeHash = JSON.stringify(local.trees || []);
-        const cloudTreeHash = JSON.stringify(data.trees || []);
-        if (localTreeHash !== cloudTreeHash && data.trees.length > 0) {
-          // Cloud version from another device is different, update local
+        updatedPlotsCount++;
+      } else {
+        // Local plot already completed. Update if cloud has newer data from any source.
+        const localTreeCount = (local.trees || []).length;
+        const cloudTreeCount = (data.trees || []).length;
+        const localIsNoTally = local.noTally || localTreeCount === 0;
+        const cloudHasData = cloudTreeCount > 0 || data.noTally;
+
+        // Update if: cloud has trees and local doesn't, or cloud is from self with different data
+        if ((localIsNoTally && cloudTreeCount > 0) ||
+            (data.fromSelf && JSON.stringify(local.trees || []) !== JSON.stringify(data.trees || []))) {
           local.trees = JSON.parse(JSON.stringify(data.trees));
           local.noTally = data.noTally || false;
+          local.cruiser = data.cruiser;
           updatePlotMarkerStyle(local);
           updatedPlotsCount++;
         }
       }
-      // If local is completed by this user and cloud data is from a different user, skip
-      // (this user's own tally takes priority for plots they completed)
     });
 
     window._cloudContributors = contributors;
@@ -3186,6 +3228,8 @@ async function pullOtherUsersPlotData(cruiseId) {
     if (newPlotsCount > 0 || updatedPlotsCount > 0) {
       updateStats();
       updateTractInfo();
+      updateEmptyHint();
+      refreshPolyChecklist();
       const parts = [];
       if (newPlotsCount > 0) parts.push(newPlotsCount + ' new plot' + (newPlotsCount > 1 ? 's' : ''));
       if (updatedPlotsCount > 0) parts.push(updatedPlotsCount + ' updated');
