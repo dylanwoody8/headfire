@@ -2049,6 +2049,10 @@
 <div class="panel" id="panel-report" style="max-height:90vh">
   <div class="panel-handle"></div>
   <div class="panel-title">Cruise Report</div>
+  <div style="margin-bottom:10px;">
+    <div class="field-label">Job</div>
+    <select class="field-input" id="report-job" style="padding:8px 10px;font-size:0.8rem" onchange="switchReportJob(this.value)"></select>
+  </div>
   <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end;">
     <div style="flex:1">
       <div class="field-label">BAF</div>
@@ -4401,36 +4405,41 @@ function toggleSpeciesRef() {
 // CRUISE REPORT
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
+let _reportJobId = null;
+
 function generateCruiseReport() {
   const el = document.getElementById('report-content');
-  const job = allJobs.find(j => j.id === activeJobId);
+  const rJobId = _reportJobId || activeJobId;
+  const job = allJobs.find(j => j.id === rJobId);
   if (!job) {
-    el.innerHTML = '<div class="report-empty"><div class="report-empty-icon">ðŸ“Š</div>No active job. Create one first.</div>';
+    el.innerHTML = '<div class="report-empty"><div class="report-empty-icon">📊</div>No job selected.</div>';
     return;
   }
 
-  // Use BAF from report panel selector
+  // Get plot/polygon data for the selected report job
+  const rData = getReportJobData();
+  const rPlots = rData.plots;
+  const rPolygons = rData.polygons;
+
   const baf = parseInt(document.getElementById('report-baf').value) || 10;
-  // All completed plots count toward the divisor (including no-tally plots)
-  const allDonePlots = plotMarkers.filter(p => p.completed);
+  const allDonePlots = rPlots.filter(p => p.completed);
   const n = allDonePlots.length;
+  const totalPlotCount = rPlots.length;
   const noTallyCount = allDonePlots.filter(p => p.noTally || !p.trees || p.trees.length === 0).length;
 
   if (!n) {
-    el.innerHTML = '<div class="report-empty"><div class="report-empty-icon">ðŸ“Š</div>Complete some plots to generate a report.</div>';
+    el.innerHTML = '<div class="report-empty"><div class="report-empty-icon">📊</div>Complete some plots to generate a report.</div>';
     return;
   }
 
-  // Use manual acres if entered, otherwise calculate from polygons
   const manualAcres = parseFloat(document.getElementById('report-acres').value);
   let totalAcres = 0;
   if (manualAcres > 0) {
     totalAcres = manualAcres;
   } else {
-    allPolygons.forEach(p => { try { totalAcres += calcAcres(p.layer); } catch(e) {} });
+    rPolygons.forEach(p => { try { totalAcres += calcAcres(p.layer); } catch(e) {} });
   }
 
-  // Accumulate by species + product
   const rule = document.getElementById('report-logrule').value || 'scribner';
   const ruleName = (LOG_RULES[rule] || LOG_RULES.scribner).name;
   const sd = {};
@@ -4447,7 +4456,6 @@ function generateCruiseReport() {
       if ((t.product || 'sawtimber') === 'pulpwood') {
         const cords = pulpwoodCords(t.dbh, t.height || 30) * tp;
         sd[key].volT += cords;
-        // Track tons separately using species weight
         if (!sd[key].tonsT) sd[key].tonsT = 0;
         sd[key].tonsT += cords * getTonsPerCord(t.spp);
       }
@@ -4469,11 +4477,9 @@ function generateCruiseReport() {
     else { totSawBA += d.baAc; totSawTPA += d.tpaAc; totSawVol += d.volAc; }
   });
 
-  // Grid spacing from panel inputs
   const spX = parseFloat(document.getElementById('grid-spacing-x').value) || 5;
   const spY = parseFloat(document.getElementById('grid-spacing-y').value) || 5;
 
-  // Gather cruiser names from plot data
   const cruiserNames = new Set();
   allDonePlots.forEach(p => { if (p.cruiser) cruiserNames.add(p.cruiser); });
   const contributors = window._cloudContributors || [];
@@ -4485,7 +4491,7 @@ function generateCruiseReport() {
     '<div class="report-row"><span>BAF</span><span class="rval">' + baf + '</span></div>' +
     '<div class="report-row"><span>Log Rule</span><span class="rval">' + ruleName + '</span></div>' +
     '<div class="report-row"><span>Grid</span><span class="rval">' + spX + ' x ' + spY + ' chains</span></div>' +
-    '<div class="report-row"><span>Plots</span><span class="rval">' + n + ' / ' + plotMarkers.length + ' done</span></div>' +
+    '<div class="report-row"><span>Plots</span><span class="rval">' + n + ' / ' + totalPlotCount + ' done</span></div>' +
     (noTallyCount > 0 ? '<div class="report-row"><span>No Tally Plots</span><span class="rval">' + noTallyCount + '</span></div>' : '') +
     '<div class="report-row"><span>Trees Tallied</span><span class="rval">' + totalTreeCount + '</span></div>' +
     '<div class="report-row"><span>Acres</span><span class="rval">' + (totalAcres > 0 ? totalAcres.toFixed(1) : 'N/A') + '</span></div>' +
@@ -4493,7 +4499,6 @@ function generateCruiseReport() {
     '<div class="report-row"><span>Date</span><span class="rval">' + new Date().toLocaleDateString() + '</span></div>' +
   '</div>';
 
-  // Sawtimber summary
   if (totSawTPA > 0) {
     html += '<div class="report-card">' +
       '<div class="report-card-title">Sawtimber, All Species (' + ruleName + ')</div>' +
@@ -4505,7 +4510,6 @@ function generateCruiseReport() {
     '</div>';
   }
 
-  // Pulpwood summary
   if (totPulpTPA > 0) {
     html += '<div class="report-card">' +
       '<div class="report-card-title">Pulpwood, All Species</div>' +
@@ -4518,7 +4522,6 @@ function generateCruiseReport() {
     '</div>';
   }
 
-  // Combined BA summary
   const totalBA = totSawBA + totPulpBA;
   const totalTPA = totSawTPA + totPulpTPA;
   if (totalBA > 0) {
@@ -4529,7 +4532,6 @@ function generateCruiseReport() {
     '</div>';
   }
 
-  // Per-species breakdown
   const speciesList = [...new Set(Object.values(sd).map(d => d.spp))];
   speciesList.forEach(spp => {
     const sawKey = spp + '|sawtimber', pulpKey = spp + '|pulpwood';
@@ -4566,10 +4568,13 @@ function generateCruiseReport() {
   el.innerHTML = html;
 }
 
-// â”€â”€ CSV Export â”€â”€
 function exportCruiseCSV() {
+  const rData = getReportJobData();
+  const rPlots = rData.plots;
+  const rPolygons = rData.polygons;
+
   const baf = parseInt(document.getElementById('report-baf').value) || 10;
-  const allDone = plotMarkers.filter(p => p.completed);
+  const allDone = rPlots.filter(p => p.completed);
   if (!allDone.length) { toast('No data to export'); return; }
 
   const manualAcres = parseFloat(document.getElementById('report-acres').value);
@@ -4577,14 +4582,13 @@ function exportCruiseCSV() {
   if (manualAcres > 0) {
     totalAcres = manualAcres;
   } else {
-    allPolygons.forEach(p => { try { totalAcres += calcAcres(p.layer); } catch(e) {} });
+    rPolygons.forEach(p => { try { totalAcres += calcAcres(p.layer); } catch(e) {} });
   }
 
   const rows = [['Plot','Species','Product','DBH_in','Logs','Height_ft','BAF','TPA','Cords_per_Acre','Tons_per_Acre','BF_per_Acre','Volume_Unit','Lat','Lng']];
   const rule = document.getElementById('report-logrule').value || 'scribner';
   allDone.forEach(p => {
     if (p.noTally || !p.trees || p.trees.length === 0) {
-      // No tally row so the plot is visible in the CSV
       rows.push([p.id, 'NO TALLY', '', '', '', '', baf, '', '', '', '', '', p.lat.toFixed(6), p.lng.toFixed(6)]);
       return;
     }
@@ -4602,18 +4606,18 @@ function exportCruiseCSV() {
     });
   });
 
-  // Add summary rows
   rows.push([]);
   rows.push(['--- SUMMARY ---']);
   rows.push(['Total Acres', totalAcres > 0 ? totalAcres.toFixed(1) : 'N/A']);
-  rows.push(['Plots Completed', allDone.length + ' / ' + plotMarkers.length]);
+  rows.push(['Plots Completed', allDone.length + ' / ' + rPlots.length]);
   rows.push(['BAF', baf]);
   rows.push(['Log Rule', (LOG_RULES[rule] || LOG_RULES.scribner).name]);
 
   const blob = new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  const job = allJobs.find(j => j.id === activeJobId);
+  const rJobId = _reportJobId || activeJobId;
+  const job = allJobs.find(j => j.id === rJobId);
   const safeName = job ? job.name.replace(/[^a-zA-Z0-9_-]/g, '_') : 'cruise';
   a.download = safeName + '_cruise_data.csv';
   a.click();
@@ -4621,42 +4625,113 @@ function exportCruiseCSV() {
 }
 
 // â”€â”€ Report panel init â”€â”€
+
 function initReportPanel() {
-  const job = allJobs.find(j => j.id === activeJobId);
+  // Populate job selector
+  const jobSel = document.getElementById('report-job');
+  jobSel.innerHTML = '';
+  const sorted = [...allJobs].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  sorted.forEach(job => {
+    const opt = document.createElement('option');
+    opt.value = job.id;
+    opt.textContent = job.name;
+    jobSel.appendChild(opt);
+  });
+
+  // Default to active job
+  if (activeJobId && allJobs.find(j => j.id === activeJobId)) {
+    jobSel.value = activeJobId;
+  }
+  _reportJobId = jobSel.value;
+
+  const job = allJobs.find(j => j.id === _reportJobId);
   const bafSel = document.getElementById('report-baf');
   bafSel.value = (job && job.baf) || 10;
 
-  // Sync log rule
   const ruleSel = document.getElementById('report-logrule');
   ruleSel.value = (job && job.logRule) || 'scribner';
 
-  // Pre-fill acres from polygons if not manually set
   const acresInput = document.getElementById('report-acres');
-  if (!acresInput.value) {
+  acresInput.value = '';
+  if (_reportJobId === activeJobId) {
     let totalAc = 0;
     allPolygons.forEach(p => { try { totalAc += calcAcres(p.layer); } catch(e) {} });
     if (totalAc > 0) acresInput.placeholder = totalAc.toFixed(1) + ' (auto)';
+    else acresInput.placeholder = 'Auto';
+  } else {
+    acresInput.placeholder = 'Enter acres';
   }
 
   generateCruiseReport();
 }
 
+function switchReportJob(jobId) {
+  _reportJobId = jobId;
+  const job = allJobs.find(j => j.id === jobId);
+
+  const bafSel = document.getElementById('report-baf');
+  bafSel.value = (job && job.baf) || 10;
+  const ruleSel = document.getElementById('report-logrule');
+  ruleSel.value = (job && job.logRule) || 'scribner';
+
+  const acresInput = document.getElementById('report-acres');
+  acresInput.value = '';
+  if (jobId === activeJobId) {
+    let totalAc = 0;
+    allPolygons.forEach(p => { try { totalAc += calcAcres(p.layer); } catch(e) {} });
+    if (totalAc > 0) acresInput.placeholder = totalAc.toFixed(1) + ' (auto)';
+    else acresInput.placeholder = 'Auto';
+  } else {
+    acresInput.placeholder = 'Enter acres';
+  }
+
+  generateCruiseReport();
+}
+
+// Helper: get plot/polygon data for the report's selected job
+function getReportJobData() {
+  if (_reportJobId === activeJobId || !_reportJobId) {
+    return { plots: plotMarkers, polygons: allPolygons, isLive: true };
+  }
+  const job = allJobs.find(j => j.id === _reportJobId);
+  if (!job) return { plots: [], polygons: [], isLive: false };
+
+  const plots = (job.plots || []).map(pd => ({
+    id: pd.id, lat: pd.lat, lng: pd.lng,
+    completed: pd.completed || false,
+    trees: pd.trees || [],
+    noTally: pd.noTally || false,
+    cruiser: pd.cruiser || ''
+  }));
+
+  const polygons = (job.polygons || []).map(pd => {
+    const latlngs = pd.coords.map(c => L.latLng(c[0], c[1]));
+    const layer = L.polygon(latlngs);
+    return { layer: layer, name: pd.name };
+  });
+
+  return { plots, polygons, isLive: false };
+}
+
 function updateReportBAF(val) {
-  // Also update the job's BAF so tally modal stays in sync
-  const job = allJobs.find(j => j.id === activeJobId);
-  if (job) {
-    job.baf = parseInt(val) || 10;
-    job.updatedAt = Date.now();
-    saveSession();
+  if (_reportJobId === activeJobId) {
+    const job = allJobs.find(j => j.id === activeJobId);
+    if (job) {
+      job.baf = parseInt(val) || 10;
+      job.updatedAt = Date.now();
+      saveSession();
+    }
   }
 }
 
 function updateReportLogRule(val) {
-  const job = allJobs.find(j => j.id === activeJobId);
-  if (job) {
-    job.logRule = val;
-    job.updatedAt = Date.now();
-    saveSession();
+  if (_reportJobId === activeJobId) {
+    const job = allJobs.find(j => j.id === activeJobId);
+    if (job) {
+      job.logRule = val;
+      job.updatedAt = Date.now();
+      saveSession();
+    }
   }
 }
 
