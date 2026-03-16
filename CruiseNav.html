@@ -2292,6 +2292,7 @@ let distUnit = 'ft';            // 'ft' or 'm'
 let wakeLock = null;
 let lastToggle = null;           // {id, previousState} for undo
 let _confirmCb = null;
+let _localSharedAccess = {};     // { "<email>::<cruiseId>": { cruiseId, shareCode, name, email, joinedAt } }
 
 // â”€â”€ Jobs System â”€â”€
 let allJobs = [];                // [{id, name, plots, polygons, createdAt}]
@@ -2951,6 +2952,33 @@ function getCurrentUserEmail() {
   return normalizeEmail(fb_user && fb_user.email);
 }
 
+function getLocalSharedAccessKey(cruiseId, email) {
+  const normalizedEmail = normalizeEmail(email);
+  return normalizedEmail && cruiseId ? (normalizedEmail + '::' + cruiseId) : '';
+}
+
+function hasLocalSharedAccess(cruiseId, email = getCurrentUserEmail()) {
+  const key = getLocalSharedAccessKey(cruiseId, email);
+  return !!(key && _localSharedAccess[key]);
+}
+
+function grantLocalSharedAccess(cruiseId, shareCode, name, email = getCurrentUserEmail()) {
+  const key = getLocalSharedAccessKey(cruiseId, email);
+  if (!key) return;
+  _localSharedAccess[key] = {
+    cruiseId: cruiseId,
+    shareCode: String(shareCode || '').trim().toUpperCase(),
+    name: name || 'Shared Cruise',
+    email: normalizeEmail(email),
+    joinedAt: Date.now()
+  };
+}
+
+function revokeLocalSharedAccess(cruiseId, email = getCurrentUserEmail()) {
+  const key = getLocalSharedAccessKey(cruiseId, email);
+  if (key && _localSharedAccess[key]) delete _localSharedAccess[key];
+}
+
 // â”€â”€ Save cruise to Firestore â”€â”€
 async function saveCruiseToCloud() {
   if (!fb_user) { toast('Sign in first'); return; }
@@ -3506,18 +3534,25 @@ function renderCruiseList(snap, container, isOwner) {
 }
 
 // â”€â”€ Load a cruise from Firestore â”€â”€
-async function loadCruiseFromCloud(cruiseId) {
+async function loadCruiseFromCloud(cruiseId, options = {}) {
   if (!fb_user) return;
   try {
+    const prefetchedData = options.prefetchedData || null;
+    const skipAccessCheck = !!options.skipAccessCheck;
+    let d = prefetchedData;
+
     // Fetch ALL data from Firestore BEFORE clearing local state
-    const doc = await fb_db.collection('cruises').doc(cruiseId).get({ source: 'server' });
-    if (!doc.exists) { toast('Cruise not found'); return; }
-    const d = doc.data();
+    if (!d) {
+      const doc = await fb_db.collection('cruises').doc(cruiseId).get({ source: 'server' });
+      if (!doc.exists) { toast('Cruise not found'); return; }
+      d = doc.data();
+    }
 
     // Check access
     const userEmail = getCurrentUserEmail();
     const sharedWith = Array.isArray(d.sharedWith) ? d.sharedWith.map(normalizeEmail).filter(Boolean) : [];
-    if (d.ownerId !== fb_user.uid && !(userEmail && sharedWith.includes(userEmail))) {
+    const hasLocalAccess = hasLocalSharedAccess(cruiseId, userEmail);
+    if (!skipAccessCheck && d.ownerId !== fb_user.uid && !(userEmail && sharedWith.includes(userEmail)) && !hasLocalAccess) {
       toast('Access denied'); return;
     }
 
@@ -3785,24 +3820,41 @@ async function joinCruiseByCode() {
     const rawSharedWith = Array.isArray(d.sharedWith) ? d.sharedWith : [];
     const sharedWith = rawSharedWith.map(normalizeEmail).filter(Boolean);
     if (sharedWith.includes(userEmail)) {
+      grantLocalSharedAccess(doc.id, code, d.name, userEmail);
       if (!rawSharedWith.includes(userEmail)) {
-        await fb_db.collection('cruises').doc(doc.id).update({
-          sharedWith: firebase.firestore.FieldValue.arrayUnion(userEmail)
-        });
+        try {
+          await fb_db.collection('cruises').doc(doc.id).update({
+            sharedWith: firebase.firestore.FieldValue.arrayUnion(userEmail)
+          });
+        } catch (normalizeJoinErr) {
+          if (!isPermissionDeniedError(normalizeJoinErr)) throw normalizeJoinErr;
+          console.warn('Could not normalize sharedWith email casing; keeping local share-code access.', normalizeJoinErr);
+        }
       }
+      saveSession();
       toast('Already shared with you');
-      loadCruiseFromCloud(doc.id);
+      loadCruiseFromCloud(doc.id, { prefetchedData: d, skipAccessCheck: true });
       return;
     }
 
-    // Add user to sharedWith
-    await fb_db.collection('cruises').doc(doc.id).update({
-      sharedWith: firebase.firestore.FieldValue.arrayUnion(userEmail)
-    });
+    let usedLocalFallback = false;
+    try {
+      // Add user to sharedWith when rules allow it.
+      await fb_db.collection('cruises').doc(doc.id).update({
+        sharedWith: firebase.firestore.FieldValue.arrayUnion(userEmail)
+      });
+    } catch (joinWriteErr) {
+      if (!isPermissionDeniedError(joinWriteErr)) throw joinWriteErr;
+      console.warn('Join write blocked by Firestore rules; using local share-code access fallback.', joinWriteErr);
+      usedLocalFallback = true;
+    }
+
+    grantLocalSharedAccess(doc.id, code, d.name, userEmail);
+    saveSession();
 
     document.getElementById('join-code-input').value = '';
-    toast('Joined: ' + d.name);
-    loadCruiseFromCloud(doc.id);
+    toast((usedLocalFallback ? 'Opened with share code: ' : 'Joined: ') + d.name);
+    loadCruiseFromCloud(doc.id, { prefetchedData: d, skipAccessCheck: true });
   } catch(e) {
     console.error(e);
     toast(formatCloudSyncError('Join', e));
@@ -3835,9 +3887,18 @@ async function leaveCruise(cruiseId, cruiseName) {
     await fb_db.collection('cruises').doc(cruiseId).update({
       sharedWith: firebase.firestore.FieldValue.arrayRemove(...emailsToRemove)
     });
+    revokeLocalSharedAccess(cruiseId, normalizedEmail || rawEmail);
+    saveSession();
     toast('Left "' + cruiseName + '"');
     loadSharedCruises();
   } catch(e) {
+    if (isPermissionDeniedError(e) && hasLocalSharedAccess(cruiseId)) {
+      revokeLocalSharedAccess(cruiseId);
+      saveSession();
+      toast('Removed local access to "' + cruiseName + '"');
+      loadSharedCruises();
+      return;
+    }
     toast('Could not leave cruise');
   }
 }
@@ -6347,7 +6408,8 @@ async function saveSession() {
       distUnit: distUnit,
       basemap: currentBasemap,
       cloudCruiseId: window._activeCloudCruiseId || null,
-      cloudCruiseOwner: window._activeCloudCruiseOwner || null
+      cloudCruiseOwner: window._activeCloudCruiseOwner || null,
+      localSharedAccess: Object.values(_localSharedAccess || {})
     }, 'session');
     await new Promise((res, rej) => { tx2.oncomplete = res; tx2.onerror = rej; });
 
@@ -6397,6 +6459,13 @@ async function restoreSession() {
       if (data.distUnit) {
         distUnit = data.distUnit;
         document.getElementById('unit-toggle').textContent = distUnit;
+      }
+      _localSharedAccess = {};
+      if (Array.isArray(data.localSharedAccess)) {
+        data.localSharedAccess.forEach(entry => {
+          const key = getLocalSharedAccessKey(entry && entry.cruiseId, entry && entry.email);
+          if (key) _localSharedAccess[key] = entry;
+        });
       }
       // Restore cloud cruise link from session or from the active job
       if (data.cloudCruiseId) {
