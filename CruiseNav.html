@@ -3046,44 +3046,86 @@ async function manualCloudSync() {
 
   try {
     if (!window._activeCloudCruiseId) {
-      // No cloud cruise linked yet, auto-create one
-      toast('Saving to cloud...');
+      // No cloud cruise linked yet. Check if one already exists in Firestore for this user
+      // before creating a duplicate.
       const activeJob = allJobs.find(j => j.id === activeJobId);
       const name = (activeJob ? activeJob.name : null) || 'Cruise ' + new Date().toLocaleDateString();
 
-      const cruiseData = {
-        name: name,
-        ownerId: fb_user.uid,
-        ownerName: fb_user.displayName || fb_user.email,
-        ownerEmail: fb_user.email,
-        shareCode: generateShareCode(),
-        sharedWith: [],
-        baf: (activeJob && activeJob.baf) || 10,
-        logRule: (activeJob && activeJob.logRule) || 'scribner',
-        species: (activeJob && activeJob.species) || [],
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        polygonsJson: JSON.stringify(allPolygons.map(p => {
-          const lls = p.layer.getLatLngs()[0];
-          return { name: p.name, coords: lls.map(ll => [ll.lat, ll.lng]) };
-        })),
-        plotsJson: JSON.stringify(plotMarkers.map(p => ({ id: p.id, lat: p.lat, lng: p.lng }))),
-        plotCount: plotMarkers.length,
-        polyCount: allPolygons.length,
-        completedCount: plotMarkers.filter(p => p.completed).length,
-        distUnit: distUnit,
-        basemap: currentBasemap
-      };
+      // Search for an existing cruise with same owner and same plot count
+      let existingCruiseId = null;
+      try {
+        const existingSnap = await fb_db.collection('cruises')
+          .where('ownerId', '==', fb_user.uid)
+          .where('plotCount', '==', plotMarkers.length)
+          .get({ source: 'server' });
 
-      const docRef = await fb_db.collection('cruises').add(cruiseData);
-      await saveUserPlotData(docRef.id);
+        if (!existingSnap.empty) {
+          // Found existing cruise(s). Pick the most recently updated one.
+          let bestDoc = null;
+          let bestTime = 0;
+          existingSnap.forEach(doc => {
+            const d = doc.data();
+            const t = d.updatedAt ? d.updatedAt.toMillis() : 0;
+            if (t > bestTime) { bestTime = t; bestDoc = doc; }
+          });
+          if (bestDoc) {
+            existingCruiseId = bestDoc.id;
+            console.log('[SYNC] Found existing cloud cruise: ' + existingCruiseId + ', linking instead of creating new');
+          }
+        }
+      } catch(searchErr) {
+        console.warn('[SYNC] Could not search for existing cruises:', searchErr);
+      }
 
-      window._activeCloudCruiseId = docRef.id;
-      window._activeCloudCruiseOwner = fb_user.uid;
+      if (existingCruiseId) {
+        // Link to existing cruise and sync to it
+        window._activeCloudCruiseId = existingCruiseId;
+        window._activeCloudCruiseOwner = fb_user.uid;
+        if (activeJob) {
+          activeJob.cloudCruiseId = existingCruiseId;
+          activeJob.updatedAt = Date.now();
+        }
+        toast('Linked to existing cloud cruise');
+        // Now push our data to it
+        await updateCruiseInCloud(existingCruiseId);
+      } else {
+        // No existing cruise found, create a new one
+        toast('Saving to cloud...');
+        const cruiseData = {
+          name: name,
+          ownerId: fb_user.uid,
+          ownerName: fb_user.displayName || fb_user.email,
+          ownerEmail: fb_user.email,
+          shareCode: generateShareCode(),
+          sharedWith: [],
+          baf: (activeJob && activeJob.baf) || 10,
+          logRule: (activeJob && activeJob.logRule) || 'scribner',
+          species: (activeJob && activeJob.species) || [],
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          polygonsJson: JSON.stringify(allPolygons.map(p => {
+            const lls = p.layer.getLatLngs()[0];
+            return { name: p.name, coords: lls.map(ll => [ll.lat, ll.lng]) };
+          })),
+          plotsJson: JSON.stringify(plotMarkers.map(p => ({ id: p.id, lat: p.lat, lng: p.lng }))),
+          plotCount: plotMarkers.length,
+          polyCount: allPolygons.length,
+          completedCount: plotMarkers.filter(p => p.completed).length,
+          distUnit: distUnit,
+          basemap: currentBasemap
+        };
+
+        const docRef = await fb_db.collection('cruises').add(cruiseData);
+        await saveUserPlotData(docRef.id);
+
+        window._activeCloudCruiseId = docRef.id;
+        window._activeCloudCruiseOwner = fb_user.uid;
+        toast('Saved: ' + name);
+      }
 
       // Link this cloud cruise ID to the active local job
       if (activeJob) {
-        activeJob.cloudCruiseId = docRef.id;
+        activeJob.cloudCruiseId = window._activeCloudCruiseId;
         activeJob.updatedAt = Date.now();
       }
     } else {
