@@ -3176,6 +3176,7 @@ function renderCruiseList(snap, container, isOwner) {
 async function loadCruiseFromCloud(cruiseId) {
   if (!fb_user) return;
   try {
+    // Fetch ALL data from Firestore BEFORE clearing local state
     const doc = await fb_db.collection('cruises').doc(cruiseId).get();
     if (!doc.exists) { toast('Cruise not found'); return; }
     const d = doc.data();
@@ -3185,16 +3186,28 @@ async function loadCruiseFromCloud(cruiseId) {
       toast('Access denied'); return;
     }
 
-    // Clear current state
+    // Detect new multi-user format vs legacy
+    const hasNewFormat = d.polygonsJson || d.plotsJson;
+
+    // Pre-fetch userData sub-collection BEFORE clearing anything
+    let userSnap = null;
+    if (hasNewFormat) {
+      try {
+        userSnap = await fb_db.collection('cruises').doc(cruiseId).collection('userData').get();
+      } catch(subErr) {
+        console.error('Failed to read userData sub-collection:', subErr);
+        toast('Failed to load plot data. Check Firestore rules for userData sub-collection.');
+        return;
+      }
+    }
+
+    // All Firestore reads succeeded. NOW safe to clear local state.
     tractLayer.clearLayers();
     tractBoundary = null;
     allPolygons = [];
     plotMarkers.forEach(p => plotLayer.removeLayer(p.marker));
     plotMarkers = [];
     stopNavigation();
-
-    // Detect new multi-user format vs legacy
-    const hasNewFormat = d.polygonsJson || d.plotsJson;
 
     // â”€â”€ Restore basemap + distance unit â”€â”€
     const basemapVal = hasNewFormat ? d.basemap : ((d.dataJson ? JSON.parse(d.dataJson) : {}).basemap);
@@ -3225,8 +3238,7 @@ async function loadCruiseFromCloud(cruiseId) {
         JSON.parse(d.plotsJson).forEach(pd => addPlot(pd.id, pd.lat, pd.lng));
       }
 
-      // Load all users' tree data from sub-collection and merge
-      const userSnap = await fb_db.collection('cruises').doc(cruiseId).collection('userData').get();
+      // Merge pre-fetched user tree data from sub-collection
       const mergedPlots = {}; // plotId -> { trees, cruiser }
       const contributors = [];
 
