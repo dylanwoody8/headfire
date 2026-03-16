@@ -2941,6 +2941,13 @@ async function saveCruiseToCloud() {
     window._activeCloudCruiseId = docRef.id;
     window._activeCloudCruiseOwner = fb_user.uid;
 
+    // Link this cloud cruise ID to the active local job
+    const linkJob = allJobs.find(j => j.id === activeJobId);
+    if (linkJob) {
+      linkJob.cloudCruiseId = docRef.id;
+      linkJob.updatedAt = Date.now();
+    }
+
     _lastSyncedPlotHash = getPlotHash();
     updateSyncButton();
 
@@ -3070,6 +3077,12 @@ async function manualCloudSync() {
 
       window._activeCloudCruiseId = docRef.id;
       window._activeCloudCruiseOwner = fb_user.uid;
+
+      // Link this cloud cruise ID to the active local job
+      if (activeJob) {
+        activeJob.cloudCruiseId = docRef.id;
+        activeJob.updatedAt = Date.now();
+      }
     } else {
       // Cloud cruise exists, sync everything
       toast('Syncing...');
@@ -3428,24 +3441,28 @@ async function loadCruiseFromCloud(cruiseId) {
     window._activeCloudCruiseId = cruiseId;
     window._activeCloudCruiseOwner = d.ownerId;
 
-    // Create or update a local job so the cloud cruise appears in the Jobs list and Report selector
-    const cloudJobId = 'cloud_' + cruiseId;
-    let localJob = allJobs.find(j => j.id === cloudJobId);
+    // Find or create a local job linked to this cloud cruise
+    // First check if any existing job is already linked to this cloud cruise ID
+    let localJob = allJobs.find(j => j.cloudCruiseId === cruiseId);
     if (!localJob) {
+      // No linked job found, create a new local job
+      const newJobId = 'job_' + Date.now();
       localJob = {
-        id: cloudJobId,
+        id: newJobId,
         name: d.name || 'Cloud Cruise',
         plots: [],
         polygons: [],
         baf: d.baf || 10,
         logRule: d.logRule || 'scribner',
         species: d.species || [],
+        cloudCruiseId: cruiseId,
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
       allJobs.push(localJob);
     }
-    // Update the local job with current map data
+    // Update the local job with current cloud/map data
+    localJob.cloudCruiseId = cruiseId;
     localJob.name = d.name || localJob.name;
     localJob.baf = d.baf || localJob.baf;
     localJob.logRule = d.logRule || localJob.logRule;
@@ -3459,7 +3476,7 @@ async function loadCruiseFromCloud(cruiseId) {
       return { name: p.name, coords: lls.map(ll => [ll.lat, ll.lng]) };
     });
     localJob.updatedAt = Date.now();
-    activeJobId = cloudJobId;
+    activeJobId = localJob.id;
     updateJobLabel();
 
     updateStats();
@@ -6159,7 +6176,7 @@ async function restoreSession() {
         distUnit = data.distUnit;
         document.getElementById('unit-toggle').textContent = distUnit;
       }
-      // Restore cloud cruise link
+      // Restore cloud cruise link from session or from the active job
       if (data.cloudCruiseId) {
         window._activeCloudCruiseId = data.cloudCruiseId;
         window._activeCloudCruiseOwner = data.cloudCruiseOwner || null;
@@ -6168,6 +6185,12 @@ async function restoreSession() {
       // Restore active job
       if (data.activeJobId && allJobs.find(j => j.id === data.activeJobId)) {
         loadJob(data.activeJobId, true);
+        // Also restore cloud link from the job itself if not already set
+        const restoredJob = allJobs.find(j => j.id === data.activeJobId);
+        if (restoredJob && restoredJob.cloudCruiseId && !window._activeCloudCruiseId) {
+          window._activeCloudCruiseId = restoredJob.cloudCruiseId;
+          window._activeCloudCruiseOwner = data.cloudCruiseOwner || null;
+        }
         return true;
       }
     }
@@ -6225,6 +6248,16 @@ function loadJob(jobId, skipSave) {
   if (!job) return;
 
   activeJobId = jobId;
+
+  // Restore cloud cruise link if this job is linked to one
+  if (job.cloudCruiseId) {
+    window._activeCloudCruiseId = job.cloudCruiseId;
+    // Owner info not stored on job, will be resolved on next sync
+    if (!window._activeCloudCruiseOwner) window._activeCloudCruiseOwner = fb_user ? fb_user.uid : null;
+  } else {
+    window._activeCloudCruiseId = null;
+    window._activeCloudCruiseOwner = null;
+  }
 
   // Restore polygons
   if (job.polygons && job.polygons.length) {
