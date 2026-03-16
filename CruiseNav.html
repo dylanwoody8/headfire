@@ -3080,6 +3080,9 @@ async function manualCloudSync() {
       }
     }
 
+    // Pull: fetch other users' plot data and merge onto local markers
+    await pullOtherUsersPlotData(window._activeCloudCruiseId);
+
     _lastSyncedPlotHash = getPlotHash();
     setSyncPending(false);
     btn.classList.remove('sync-active');
@@ -3087,11 +3090,60 @@ async function manualCloudSync() {
     toast('Synced!');
     vibrate([50, 30, 50]);
     setTimeout(() => { btn.classList.remove('sync-done'); }, 2000);
+    // Update local job with merged data
+    saveSession();
   } catch(e) {
     btn.classList.remove('sync-active');
     setSyncPending(true);
     toast('Sync failed. Will retry.');
     console.error('Manual sync error:', e);
+  }
+}
+
+// Pull other users' completed plot data from Firestore and merge locally
+async function pullOtherUsersPlotData(cruiseId) {
+  if (!fb_user || !cruiseId) return;
+  try {
+    const userSnap = await fb_db.collection('cruises').doc(cruiseId).collection('userData').get();
+    let newPlotsCount = 0;
+    const contributors = [];
+
+    userSnap.forEach(udoc => {
+      const ud = udoc.data();
+      contributors.push(ud.userName || ud.userEmail || udoc.id);
+
+      // Skip this user's own data (we already have it locally)
+      if (udoc.id === fb_user.uid) return;
+
+      const userPlots = JSON.parse(ud.plots || '[]');
+      userPlots.forEach(up => {
+        if (!up.completed) return;
+        const local = plotMarkers.find(p => p.id === up.id);
+        if (!local) return; // Plot doesn't exist locally
+
+        // Only merge if the local plot is NOT already completed by this user
+        // (don't overwrite your own tally with someone else's)
+        if (local.completed) return;
+
+        // Apply the other user's tree data
+        local.trees = JSON.parse(JSON.stringify(up.trees || []));
+        local.completed = true;
+        local.noTally = up.noTally || false;
+        local.cruiser = ud.userName || ud.userEmail || udoc.id;
+        updatePlotMarkerStyle(local);
+        newPlotsCount++;
+      });
+    });
+
+    window._cloudContributors = contributors;
+
+    if (newPlotsCount > 0) {
+      updateStats();
+      updateTractInfo();
+      toast(newPlotsCount + ' plot' + (newPlotsCount > 1 ? 's' : '') + ' received from other cruisers');
+    }
+  } catch(e) {
+    console.warn('Pull other users data failed:', e);
   }
 }
 
