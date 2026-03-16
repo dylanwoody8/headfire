@@ -6106,7 +6106,9 @@ async function saveSession() {
     store2.put({
       activeJobId: activeJobId,
       distUnit: distUnit,
-      basemap: currentBasemap
+      basemap: currentBasemap,
+      cloudCruiseId: window._activeCloudCruiseId || null,
+      cloudCruiseOwner: window._activeCloudCruiseOwner || null
     }, 'session');
     await new Promise((res, rej) => { tx2.oncomplete = res; tx2.onerror = rej; });
 
@@ -6157,6 +6159,12 @@ async function restoreSession() {
         distUnit = data.distUnit;
         document.getElementById('unit-toggle').textContent = distUnit;
       }
+      // Restore cloud cruise link
+      if (data.cloudCruiseId) {
+        window._activeCloudCruiseId = data.cloudCruiseId;
+        window._activeCloudCruiseOwner = data.cloudCruiseOwner || null;
+      }
+
       // Restore active job
       if (data.activeJobId && allJobs.find(j => j.id === data.activeJobId)) {
         loadJob(data.activeJobId, true);
@@ -6514,6 +6522,7 @@ document.addEventListener('visibilitychange', () => {
   updateEmptyHint();
   updateStats();
   updateJobLabel();
+  updateSyncButton();
 
   // Dismiss loading screen
   setTimeout(() => {
