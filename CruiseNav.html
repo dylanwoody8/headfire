@@ -6777,7 +6777,7 @@ function togglePlotStatus(id) {
   showUndoToast(id, wasCompleted);
 
   // Stop navigation if the completed plot was the nav target
-  if (navTargetId === id && plot.completed) {
+  if (String(navTargetId) === String(id) && plot.completed) {
     stopNavigation();
   }
 
@@ -6789,7 +6789,7 @@ function updatePlotMarkerStyle(plot) {
   const el = document.getElementById('plot-marker-' + plot.id);
   if (!el) return;
   el.className = 'cruise-plot-marker ' +
-    (navTargetId === plot.id ? 'navigating' : (plot.completed ? 'complete' : 'pending'));
+    (String(navTargetId) === String(plot.id) ? 'navigating' : (plot.completed ? 'complete' : 'pending'));
 }
 
 function deletePlot(id) {
@@ -6798,7 +6798,7 @@ function deletePlot(id) {
   const plot = plotMarkers[idx];
   plotLayer.removeLayer(plot.marker);
   plotMarkers.splice(idx, 1);
-  if (navTargetId === id) stopNavigation();
+  if (String(navTargetId) === String(id)) stopNavigation();
   map.closePopup();
   updateStats();
   updateEmptyHint();
@@ -6961,7 +6961,7 @@ function navigateToPlot(id) {
 
   // Clear previous nav styling
   if (navTargetId != null) {
-    const prev = plotMarkers.find(p => p.id === navTargetId);
+    const prev = findPlotById(navTargetId);
     if (prev) updatePlotMarkerStyle(prev);
   }
   if (navLine) { map.removeLayer(navLine); navLine = null; }
@@ -7000,7 +7000,7 @@ function navigateToNext() {
 
 function stopNavigation() {
   if (navTargetId != null) {
-    const plot = plotMarkers.find(p => p.id === navTargetId);
+    const plot = findPlotById(navTargetId);
     if (plot) updatePlotMarkerStyle(plot);
   }
   navTargetId = null;
@@ -7012,7 +7012,7 @@ function stopNavigation() {
 let arrivedAtPlot = {};
 function updateNavigation() {
   if (navTargetId == null || !myLocation) return;
-  const plot = plotMarkers.find(p => p.id === navTargetId);
+  const plot = findPlotById(navTargetId);
   if (!plot) return;
 
   const dist = getDistance(myLocation.lat, myLocation.lng, plot.lat, plot.lng);
@@ -7054,7 +7054,7 @@ function refreshPlotList() {
 
   let html = '';
   plotMarkers.forEach(plot => {
-    const isNav = navTargetId === plot.id;
+    const isNav = String(navTargetId) === String(plot.id);
     const dist = myLocation ? getDistance(myLocation.lat, myLocation.lng, plot.lat, plot.lng) : null;
     const statusClass = isNav ? 'navigating' : (plot.completed ? 'complete' : 'pending');
     const itemClass = isNav ? 'active-nav' : (plot.completed ? 'completed' : '');
