@@ -3922,7 +3922,9 @@ async function pullOtherUsersPlotData(cruiseId, options = {}) {
       if (!local) return;
 
       if (!local.completed) {
-        // Local plot is pending, apply cloud data
+        // Local plot is pending. Only apply cloud data from OTHER users.
+        // If data is from self, local state is the source of truth (user may have just toggled it).
+        if (data.fromSelf) return;
         local.trees = cloneJson(data.trees || []);
         local.completed = true;
         local.noTally = data.noTally || false;
@@ -6769,6 +6771,10 @@ function togglePlotStatus(id) {
   if (!plot) return;
   const wasCompleted = plot.completed;
   plot.completed = !plot.completed;
+  // Clear noTally flag when marking back to pending
+  if (!plot.completed) {
+    plot.noTally = false;
+  }
   updatePlotMarkerStyle(plot);
   map.closePopup();
   updateStats();
@@ -7037,12 +7043,13 @@ function updateNavigation() {
     color: '#3498db', weight: 3, dashArray: '8 8', opacity: 0.8, className: 'nav-line'
   }).addTo(map);
 
-  // Auto-arrive: if within ~10m, vibrate and notify once
-  if (dist < 10 && !arrivedAtPlot[plot.id]) {
+  // Auto-arrive: if within 15 ft (~4.57m), vibrate and open plot popup
+  if (dist < 4.57 && !arrivedAtPlot[plot.id]) {
     arrivedAtPlot[plot.id] = true;
     vibrate([100, 50, 100, 50, 200]);
-    toast('Arrived at Plot ' + plot.id + '! Tap marker to tally.');
-  } else if (dist >= 20) {
+    map.setView([plot.lat, plot.lng], Math.max(map.getZoom(), 17), { animate: true });
+    setTimeout(() => openPlotPopup(plot), 300);
+  } else if (dist >= 10) {
     arrivedAtPlot[plot.id] = false;
   }
 }
