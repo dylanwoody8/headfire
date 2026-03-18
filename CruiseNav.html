@@ -419,6 +419,12 @@
     margin-bottom: 6px;
     font-weight: 600;
   }
+  .field-help {
+    margin-top: 6px;
+    font-size: 0.6rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
   .field-input {
     width: 100%;
     background: var(--bg-deep);
@@ -560,6 +566,7 @@
     height: 24px;
     transition: transform 0.3s ease;
   }
+  .nav-hud-arrow.no-heading { opacity: 0.45; }
   .nav-hud-arrow svg {
     width: 100%;
     height: 100%;
@@ -2037,7 +2044,7 @@
     </div>
     <div class="nav-hud-info">
       <div class="nav-hud-dist" id="nav-dist">--</div>
-      <div class="nav-hud-label">to plot</div>
+      <div class="nav-hud-label" id="nav-hud-label">to plot</div>
       <div class="nav-hud-plot" id="nav-plot-label">--</div>
     </div>
     <button class="nav-hud-close" onclick="stopNavigation()" title="Stop navigation">&#x2715;</button>
@@ -2235,6 +2242,14 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
     Cloud Sync & Sharing
   </button>
+  <div class="field-group">
+    <div class="field-label">Navigation Heading</div>
+    <select class="field-input" id="nav-heading-mode" onchange="setNavHeadingMode(this.value)">
+      <option value="device">Phone Compass</option>
+      <option value="movement">Walking Direction</option>
+    </select>
+    <div class="field-help">Walking Direction waits until you start moving, then points using your travel direction instead of the phone compass.</div>
+  </div>
   <button class="btn btn-danger" onclick="clearEverything()">Clear All Data</button>
   <div class="theme-picker">
     <div class="theme-picker-label">Theme Color</div>
@@ -2558,7 +2573,17 @@ function escapeJsString(value) {
     .replace(/\n/g, '\\n')
     .replace(/<\//g, '<\\/');
 }
+const NAV_HEADING_MODE_DEVICE = 'device';
+const NAV_HEADING_MODE_MOVEMENT = 'movement';
+const MOVEMENT_HEADING_MIN_DISTANCE_METERS = 4;
+const MOVEMENT_HEADING_MIN_SPEED_MPS = 0.5;
+const MOVEMENT_HEADING_SMOOTHING = 0.35;
+const MOVEMENT_SAMPLE_REFRESH_MS = 4000;
 let deviceHeading = null;
+let movementHeading = null;
+let navHeadingMode = NAV_HEADING_MODE_DEVICE;
+let lastMovementSample = null;
+let headingListenersAttached = false;
 let distUnit = 'ft';            // 'ft' or 'm'
 let wakeLock = null;
 let lastToggle = null;           // {id, previousState} for undo
@@ -6884,6 +6909,131 @@ function toggleEdit() {
 // â”€â”€ GPS Location â”€â”€
 let pendingFlyToLocation = false;
 
+function normalizeHeadingMode(mode) {
+  return mode === NAV_HEADING_MODE_MOVEMENT ? NAV_HEADING_MODE_MOVEMENT : NAV_HEADING_MODE_DEVICE;
+}
+
+function normalizeDegrees(value) {
+  if (value == null || value === '') return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return ((num % 360) + 360) % 360;
+}
+
+function blendHeading(previous, next, factor) {
+  const prevHeading = normalizeDegrees(previous);
+  const nextHeading = normalizeDegrees(next);
+  if (nextHeading == null) return prevHeading;
+  if (prevHeading == null) return nextHeading;
+  const prevRad = prevHeading * Math.PI / 180;
+  const nextRad = nextHeading * Math.PI / 180;
+  const x = (1 - factor) * Math.cos(prevRad) + factor * Math.cos(nextRad);
+  const y = (1 - factor) * Math.sin(prevRad) + factor * Math.sin(nextRad);
+  if (Math.abs(x) < 0.0001 && Math.abs(y) < 0.0001) return nextHeading;
+  return normalizeDegrees(Math.atan2(y, x) * 180 / Math.PI);
+}
+
+function getActiveHeading() {
+  return navHeadingMode === NAV_HEADING_MODE_MOVEMENT ? movementHeading : deviceHeading;
+}
+
+function attachHeadingListeners() {
+  if (headingListenersAttached) return;
+  window.addEventListener('deviceorientationabsolute', onHeading, true);
+  window.addEventListener('deviceorientation', onHeading, true);
+  headingListenersAttached = true;
+}
+
+function detachHeadingListeners() {
+  window.removeEventListener('deviceorientationabsolute', onHeading, true);
+  window.removeEventListener('deviceorientation', onHeading, true);
+  headingListenersAttached = false;
+}
+
+function syncHeadingTracking() {
+  if (!isLocating || navHeadingMode !== NAV_HEADING_MODE_DEVICE || !window.DeviceOrientationEvent) {
+    detachHeadingListeners();
+    if (navHeadingMode !== NAV_HEADING_MODE_DEVICE) deviceHeading = null;
+    updateLocationHeading();
+    updateNavigation();
+    return;
+  }
+
+  if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then(state => {
+      if (state === 'granted') {
+        attachHeadingListeners();
+      } else {
+        detachHeadingListeners();
+        deviceHeading = null;
+        updateLocationHeading();
+        updateNavigation();
+      }
+    }).catch(() => {
+      detachHeadingListeners();
+    });
+  } else {
+    attachHeadingListeners();
+  }
+}
+
+function setNavHeadingMode(mode, options) {
+  const opts = options || {};
+  navHeadingMode = normalizeHeadingMode(mode);
+  const select = document.getElementById('nav-heading-mode');
+  if (select && select.value !== navHeadingMode) select.value = navHeadingMode;
+  if (navHeadingMode !== NAV_HEADING_MODE_MOVEMENT) {
+    movementHeading = null;
+    lastMovementSample = null;
+  }
+  syncHeadingTracking();
+  updateLocationHeading();
+  updateNavigation();
+  if (!opts.skipSave) saveSession();
+}
+
+function updateMovementHeading(position) {
+  const lat = position.coords.latitude;
+  const lng = position.coords.longitude;
+  const timestamp = Number.isFinite(position.timestamp) ? position.timestamp : Date.now();
+  const accuracy = Number.isFinite(Number(position.coords.accuracy)) ? Number(position.coords.accuracy) : null;
+  const reportedSpeed = Number.isFinite(Number(position.coords.speed)) ? Number(position.coords.speed) : null;
+  const reportedHeading = normalizeDegrees(position.coords.heading);
+  const minDistance = Math.max(
+    MOVEMENT_HEADING_MIN_DISTANCE_METERS,
+    accuracy != null ? Math.min(Math.max(accuracy * 0.35, 0), 12) : 0
+  );
+  let nextHeading = null;
+  let sampleDistance = null;
+  let sampleAgeMs = null;
+
+  if (reportedHeading != null && (reportedSpeed == null || reportedSpeed >= MOVEMENT_HEADING_MIN_SPEED_MPS)) {
+    nextHeading = reportedHeading;
+  }
+
+  if (nextHeading == null && lastMovementSample) {
+    sampleDistance = getDistance(lastMovementSample.lat, lastMovementSample.lng, lat, lng);
+    sampleAgeMs = Math.max(timestamp - lastMovementSample.timestamp, 0);
+    const derivedSpeed = sampleAgeMs > 0 ? sampleDistance / (sampleAgeMs / 1000) : 0;
+    if (sampleDistance >= minDistance && derivedSpeed >= MOVEMENT_HEADING_MIN_SPEED_MPS) {
+      nextHeading = getBearing(lastMovementSample.lat, lastMovementSample.lng, lat, lng);
+    }
+  }
+
+  if (nextHeading != null) {
+    movementHeading = blendHeading(movementHeading, nextHeading, MOVEMENT_HEADING_SMOOTHING);
+  }
+
+  if (
+    !lastMovementSample ||
+    nextHeading != null ||
+    (sampleDistance != null && sampleDistance >= minDistance * 0.5) ||
+    (sampleAgeMs != null && sampleAgeMs >= MOVEMENT_SAMPLE_REFRESH_MS)
+  ) {
+    lastMovementSample = { lat, lng, timestamp };
+  }
+}
+
 function toggleLocate() {
   const btn = document.getElementById('nav-btn-locate');
   if (isLocating) {
@@ -6904,10 +7054,13 @@ function startLocating() {
   if (!navigator.geolocation) { toast('GPS not available'); return; }
   isLocating = true;
   pendingFlyToLocation = true;
+  movementHeading = null;
+  lastMovementSample = null;
 
   locationWatchId = navigator.geolocation.watchPosition(
     pos => {
       myLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      updateMovementHeading(pos);
       updateLocationMarker();
       updateNavigation();
       updatePlotDistances();
@@ -6920,21 +7073,7 @@ function startLocating() {
     { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
   );
 
-  // Heading from device orientation
-  if (window.DeviceOrientationEvent) {
-    // iOS 13+ requires explicit permission for compass
-    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-      DeviceOrientationEvent.requestPermission().then(state => {
-        if (state === 'granted') {
-          window.addEventListener('deviceorientationabsolute', onHeading, true);
-          window.addEventListener('deviceorientation', onHeading, true);
-        }
-      }).catch(() => {});
-    } else {
-      window.addEventListener('deviceorientationabsolute', onHeading, true);
-      window.addEventListener('deviceorientation', onHeading, true);
-    }
-  }
+  syncHeadingTracking();
 }
 
 function onHeading(e) {
@@ -6944,9 +7083,11 @@ function onHeading(e) {
   } else if (e.webkitCompassHeading != null) {
     newHeading = e.webkitCompassHeading;
   }
+  newHeading = normalizeDegrees(newHeading);
   if (newHeading != null) {
     deviceHeading = newHeading;
     updateLocationHeading();
+    updateNavigation();
   }
 }
 
@@ -6960,8 +7101,10 @@ function stopLocating() {
     map.removeLayer(myLocationMarker);
     myLocationMarker = null;
   }
-  window.removeEventListener('deviceorientationabsolute', onHeading, true);
-  window.removeEventListener('deviceorientation', onHeading, true);
+  detachHeadingListeners();
+  deviceHeading = null;
+  movementHeading = null;
+  lastMovementSample = null;
 }
 
 function updateLocationMarker() {
@@ -6987,11 +7130,13 @@ function updateLocationMarker() {
 function updateLocationHeading() {
   const cone = document.getElementById('loc-cone');
   if (!cone) return;
-  if (deviceHeading != null) {
+  const activeHeading = getActiveHeading();
+  if (activeHeading != null) {
     cone.classList.remove('no-heading');
-    cone.style.transform = 'rotate(' + deviceHeading + 'deg)';
+    cone.style.transform = 'rotate(' + activeHeading + 'deg)';
   } else {
     cone.classList.add('no-heading');
+    cone.style.transform = '';
   }
 }
 
@@ -7353,6 +7498,10 @@ function stopNavigation() {
   navTargetId = null;
   if (navLine) { map.removeLayer(navLine); navLine = null; }
   document.getElementById('nav-hud').classList.remove('open');
+  const navArrow = document.getElementById('nav-arrow');
+  if (navArrow) navArrow.classList.remove('no-heading');
+  const navLabel = document.getElementById('nav-hud-label');
+  if (navLabel) navLabel.textContent = 'to plot';
   releaseWakeLock();
 }
 
@@ -7367,8 +7516,19 @@ function updateNavigation() {
 
   // Direction arrow
   const bearing = getBearing(myLocation.lat, myLocation.lng, plot.lat, plot.lng);
-  const rotation = deviceHeading != null ? bearing - deviceHeading : bearing;
-  document.getElementById('nav-arrow').style.transform = 'rotate(' + rotation + 'deg)';
+  const activeHeading = getActiveHeading();
+  const navArrow = document.getElementById('nav-arrow');
+  const navLabel = document.getElementById('nav-hud-label');
+  if (navHeadingMode === NAV_HEADING_MODE_MOVEMENT && activeHeading == null) {
+    navArrow.classList.add('no-heading');
+    navArrow.style.transform = 'rotate(0deg)';
+    if (navLabel) navLabel.textContent = 'start walking to align';
+  } else {
+    const rotation = activeHeading != null ? bearing - activeHeading : bearing;
+    navArrow.classList.remove('no-heading');
+    navArrow.style.transform = 'rotate(' + rotation + 'deg)';
+    if (navLabel) navLabel.textContent = 'to plot';
+  }
 
   // Draw nav line
   if (navLine) map.removeLayer(navLine);
@@ -7913,6 +8073,7 @@ async function saveSession() {
     store2.put({
       activeJobId: activeJobId,
       distUnit: distUnit,
+      navHeadingMode: navHeadingMode,
       basemap: currentBasemap,
       cloudCruiseId: window._activeCloudCruiseId || null,
       cloudCruiseOwner: window._activeCloudCruiseOwner || null,
@@ -7968,6 +8129,7 @@ async function restoreSession() {
         distUnit = data.distUnit;
         document.getElementById('unit-toggle').textContent = distUnit;
       }
+      setNavHeadingMode(data.navHeadingMode, { skipSave: true });
       _localSharedAccess = {};
       if (Array.isArray(data.localSharedAccess)) {
         data.localSharedAccess.forEach(entry => {
