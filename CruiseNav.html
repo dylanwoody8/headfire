@@ -1211,6 +1211,11 @@
     border-radius: 50%;
     box-shadow: 0 0 0 3px rgba(52,152,219,0.3), 0 2px 8px rgba(0,0,0,0.4);
     z-index: 2;
+    transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+  }
+  .my-location-dot.heading-active {
+    opacity: 0;
+    transform: scale(0.65);
   }
   .my-location-cone {
     position: absolute;
@@ -1225,17 +1230,19 @@
   .my-location-cone.no-heading { display: none; }
   .my-location-arrow {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 48px;
-    height: 48px;
+    top: 8px;
+    left: 8px;
+    width: 32px;
+    height: 32px;
     transition: transform 0.15s ease-out;
-    transform-origin: 24px 24px;
+    transform-origin: 16px 16px;
     pointer-events: none;
-    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
-    z-index: 3;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.45));
+    z-index: 4;
+    opacity: 0;
   }
-  .my-location-arrow.no-heading { display: none; }
+  .my-location-arrow.active { opacity: 1; }
+  .my-location-arrow.no-heading { opacity: 0; }
   .my-location-pulse {
     position: absolute;
     top: 16px;
@@ -7133,10 +7140,10 @@ function updateLocationMarker() {
             '<svg class="my-location-cone no-heading" id="loc-cone" viewBox="0 0 48 48">' +
               '<path d="M24 2 L36 22 Q24 17 12 22 Z" fill="#3498db" stroke="#2980b9" stroke-width="1"/>' +
             '</svg>' +
-            '<div class="my-location-dot"></div>' +
-            '<svg class="my-location-arrow no-heading" id="loc-arrow" viewBox="0 0 48 48" aria-hidden="true">' +
-              '<path d="M24 6 L33 23 L24 18.5 L15 23 Z" fill="#ffffff" stroke="#1f6ea8" stroke-width="1.8" stroke-linejoin="round"/>' +
-              '<path d="M24 18.5 L24 32" stroke="#ffffff" stroke-width="3.6" stroke-linecap="round"/>' +
+            '<div class="my-location-dot" id="loc-dot"></div>' +
+            '<svg class="my-location-arrow no-heading" id="loc-arrow" viewBox="0 0 32 32" aria-hidden="true">' +
+              '<path d="M16 2 L25 22 L16 17.5 L7 22 Z" fill="#3498db" stroke="#ffffff" stroke-width="2.2" stroke-linejoin="round"/>' +
+              '<path d="M16 17.5 L16 28" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round"/>' +
             '</svg>'
     });
     myLocationMarker = L.marker([myLocation.lat, myLocation.lng], { icon, zIndexOffset: 1000 }).addTo(map);
@@ -7148,6 +7155,7 @@ function updateLocationMarker() {
 
 function updateLocationHeading() {
   const cone = document.getElementById('loc-cone');
+  const dot = document.getElementById('loc-dot');
   const arrow = document.getElementById('loc-arrow');
   const activeHeading = getActiveHeading();
   if (cone && activeHeading != null) {
@@ -7158,11 +7166,19 @@ function updateLocationHeading() {
     cone.style.transform = '';
   }
 
+  if (dot && activeHeading != null) {
+    dot.classList.add('heading-active');
+  } else if (dot) {
+    dot.classList.remove('heading-active');
+  }
+
   if (arrow && activeHeading != null) {
     arrow.classList.remove('no-heading');
+    arrow.classList.add('active');
     arrow.style.transform = 'rotate(' + activeHeading + 'deg)';
   } else if (arrow) {
     arrow.classList.add('no-heading');
+    arrow.classList.remove('active');
     arrow.style.transform = '';
   }
 }
