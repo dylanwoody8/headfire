@@ -1122,6 +1122,21 @@
   .settings-card svg { width: 24px; height: 24px; stroke: var(--accent); margin-bottom: 6px; }
   .settings-card-label { font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
 
+  /* Theme picker */
+  .theme-picker { padding: 12px 0 4px; }
+  .theme-picker-label { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+  .theme-swatches { display: flex; gap: 10px; flex-wrap: wrap; }
+  .theme-swatch {
+    width: 36px; height: 36px; border-radius: 50%; border: 2px solid transparent;
+    cursor: pointer; transition: transform 0.15s, border-color 0.15s; position: relative;
+  }
+  .theme-swatch:active { transform: scale(0.9); }
+  .theme-swatch.active { border-color: var(--text-primary); }
+  .theme-swatch.active::after {
+    content: '\2713'; position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: #fff; font-size: 14px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+
   /* Polygon checklist */
   .poly-checklist {
     max-height: 150px;
@@ -2056,6 +2071,10 @@
     Cloud Sync & Sharing
   </button>
   <button class="btn btn-danger" onclick="clearEverything()">Clear All Data</button>
+  <div class="theme-picker">
+    <div class="theme-picker-label">Theme Color</div>
+    <div class="theme-swatches" id="theme-swatches"></div>
+  </div>
 </div>
 
 <!-- Cruise Setup Panel -->
@@ -8039,6 +8058,86 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // â”€â”€ Initialize â”€â”€
+// Theme system
+const APP_THEMES = {
+  forest: {
+    label: 'Forest', swatch: '#6abf4b',
+    '--bg-deep': '#0d1a0d', '--bg-main': '#1a2e1a', '--bg-card': '#1e3520', '--bg-elevated': '#254228',
+    '--border': '#2d5a3d', '--border-bright': '#3d7a50',
+    '--accent': '#6abf4b', '--accent-glow': '#8cd970', '--accent-dim': '#4a8f3a',
+    '--text-primary': '#e8f0e4', '--text-secondary': '#a0b89a', '--text-muted': '#6d8a66',
+    '--plot-complete': '#6abf4b'
+  },
+  ocean: {
+    label: 'Ocean', swatch: '#3498db',
+    '--bg-deep': '#0a141e', '--bg-main': '#132638', '--bg-card': '#18304a', '--bg-elevated': '#1e3d5c',
+    '--border': '#254d6e', '--border-bright': '#356d94',
+    '--accent': '#3498db', '--accent-glow': '#5dade2', '--accent-dim': '#2176ad',
+    '--text-primary': '#e4eef6', '--text-secondary': '#94b4cc', '--text-muted': '#5d86a6',
+    '--plot-complete': '#3498db'
+  },
+  ember: {
+    label: 'Ember', swatch: '#e67e22',
+    '--bg-deep': '#1a100a', '--bg-main': '#2e1c10', '--bg-card': '#3a2414', '--bg-elevated': '#4a2e1a',
+    '--border': '#5c3a22', '--border-bright': '#7a4e30',
+    '--accent': '#e67e22', '--accent-glow': '#f0a050', '--accent-dim': '#b86218',
+    '--text-primary': '#f0e8e0', '--text-secondary': '#c0a890', '--text-muted': '#8a7060',
+    '--plot-complete': '#e67e22'
+  },
+  slate: {
+    label: 'Slate', swatch: '#8e9aaf',
+    '--bg-deep': '#12141a', '--bg-main': '#1c2028', '--bg-card': '#232830', '--bg-elevated': '#2c323c',
+    '--border': '#3a4050', '--border-bright': '#4e5568',
+    '--accent': '#8e9aaf', '--accent-glow': '#aab4c4', '--accent-dim': '#6b7588',
+    '--text-primary': '#e8eaee', '--text-secondary': '#a0a8b8', '--text-muted': '#6a7080',
+    '--plot-complete': '#8e9aaf'
+  },
+  crimson: {
+    label: 'Crimson', swatch: '#c0392b',
+    '--bg-deep': '#1a0c0c', '--bg-main': '#2e1414', '--bg-card': '#3a1a1a', '--bg-elevated': '#4a2020',
+    '--border': '#5c2828', '--border-bright': '#7a3838',
+    '--accent': '#c0392b', '--accent-glow': '#e05040', '--accent-dim': '#962e22',
+    '--text-primary': '#f0e4e4', '--text-secondary': '#c0a0a0', '--text-muted': '#8a6060',
+    '--plot-complete': '#c0392b'
+  },
+  gold: {
+    label: 'Gold', swatch: '#d4a017',
+    '--bg-deep': '#1a160a', '--bg-main': '#2e2610', '--bg-card': '#3a2e14', '--bg-elevated': '#4a3a1a',
+    '--border': '#5c4a22', '--border-bright': '#7a6430',
+    '--accent': '#d4a017', '--accent-glow': '#e8be40', '--accent-dim': '#a87c12',
+    '--text-primary': '#f0ece0', '--text-secondary': '#c0b490', '--text-muted': '#8a7a58',
+    '--plot-complete': '#d4a017'
+  }
+};
+
+function applyTheme(themeId) {
+  const theme = APP_THEMES[themeId];
+  if (!theme) return;
+  const root = document.documentElement;
+  Object.keys(theme).forEach(key => {
+    if (key.startsWith('--')) root.style.setProperty(key, theme[key]);
+  });
+  try { localStorage.setItem('headfire-theme', themeId); } catch(e) {}
+  document.querySelectorAll('.theme-swatch').forEach(el => {
+    el.classList.toggle('active', el.dataset.theme === themeId);
+  });
+}
+
+function buildThemeSwatches() {
+  const container = document.getElementById('theme-swatches');
+  if (!container) return;
+  let saved = 'forest';
+  try { saved = localStorage.getItem('headfire-theme') || 'forest'; } catch(e) {}
+  container.innerHTML = Object.keys(APP_THEMES).map(id => {
+    const t = APP_THEMES[id];
+    return '<div class="theme-swatch' + (id === saved ? ' active' : '') + '" data-theme="' + id +
+      '" style="background:' + t.swatch + '" title="' + t.label + '" onclick="applyTheme(\'' + id + '\')"></div>';
+  }).join('');
+  applyTheme(saved);
+}
+
+buildThemeSwatches();
+
 (async function init() {
   // Try restoring a previous session
   const restored = await restoreSession().catch(() => false);
