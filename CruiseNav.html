@@ -2287,13 +2287,9 @@
     <button class="panel-close" type="button" onclick="closePanel()" aria-label="Close panel">&#x2715;</button>
   </div>
   <div class="field-group">
-    <div class="field-label">Basal Area Factor (BAF)</div>
-    <select class="field-input" id="setup-baf" onchange="updateJobBAF(this.value)">
-      <option value="5">5</option>
-      <option value="10">10</option>
-      <option value="20" selected>20</option>
-      <option value="40">40</option>
-    </select>
+    <div class="field-label">Cruise Method</div>
+    <select class="field-input" id="setup-cruise-type" onchange="updateJobCruiseType(this.value)"></select>
+    <div class="field-help" id="setup-cruise-note"></div>
   </div>
   <div class="field-group">
     <div class="field-label">Log Rule (Sawtimber)</div>
@@ -2337,13 +2333,8 @@
   </div>
   <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end;">
     <div style="flex:1">
-      <div class="field-label">BAF</div>
-      <select class="field-input" id="report-baf" style="padding:8px 10px;font-size:0.8rem" onchange="updateReportBAF(this.value); generateCruiseReport()">
-        <option value="5">5</option>
-        <option value="10">10</option>
-        <option value="20">20</option>
-        <option value="40">40</option>
-      </select>
+      <div class="field-label">Cruise Method</div>
+      <select class="field-input" id="report-cruise-type" style="padding:8px 10px;font-size:0.8rem" onchange="updateReportCruiseType(this.value); generateCruiseReport()"></select>
     </div>
     <div style="flex:1">
       <div class="field-label">Log Rule</div>
@@ -2972,12 +2963,115 @@ function getDefaultCruiseSpecies() {
   return DEFAULT_SPECIES.filter(s => ['LP','LL','SP','RO','WO','YP','HK','GU','RM','HW'].includes(s.code));
 }
 
+const CRUISE_METHODS = [
+  { value: 'fixed_5', label: '1/5 (.2)', kind: 'fixed', expansionFactor: 5, shortLabel: '1/5 ac' },
+  { value: 'fixed_10', label: '1/10 (.1)', kind: 'fixed', expansionFactor: 10, shortLabel: '1/10 ac' },
+  { value: 'fixed_15', label: '1/15 (.067)', kind: 'fixed', expansionFactor: 15, shortLabel: '1/15 ac' },
+  { value: 'fixed_20', label: '1/20 (.05)', kind: 'fixed', expansionFactor: 20, shortLabel: '1/20 ac' },
+  { value: 'fixed_30', label: '1/30 (.033)', kind: 'fixed', expansionFactor: 30, shortLabel: '1/30 ac' },
+  { value: 'fixed_40', label: '1/40 (.025)', kind: 'fixed', expansionFactor: 40, shortLabel: '1/40 ac' },
+  { value: 'fixed_50', label: '1/50 (.02)', kind: 'fixed', expansionFactor: 50, shortLabel: '1/50 ac' },
+  { value: 'baf_5', label: 'BAF 5', kind: 'baf', baf: 5, shortLabel: 'BAF 5' },
+  { value: 'baf_10', label: 'BAF 10', kind: 'baf', baf: 10, shortLabel: 'BAF 10' },
+  { value: 'baf_15', label: 'BAF 15', kind: 'baf', baf: 15, shortLabel: 'BAF 15' },
+  { value: 'baf_20', label: 'BAF 20', kind: 'baf', baf: 20, shortLabel: 'BAF 20' },
+  { value: 'baf_30', label: 'BAF 30', kind: 'baf', baf: 30, shortLabel: 'BAF 30' },
+  { value: 'baf_40', label: 'BAF 40', kind: 'baf', baf: 40, shortLabel: 'BAF 40' },
+  { value: 'full_100', label: '100% Tally', kind: 'full', shortLabel: '100% Tally' }
+];
+
+CRUISE_METHODS.forEach(method => {
+  if (method.kind === 'fixed') {
+    method.plotFraction = 1 / method.expansionFactor;
+    method.plotRadiusFeet = Math.sqrt((43560 * method.plotFraction) / Math.PI);
+  }
+});
+
+const CRUISE_METHOD_MAP = {};
+CRUISE_METHODS.forEach(method => { CRUISE_METHOD_MAP[method.value] = method; });
+
+function getCruiseMethod(value) {
+  return CRUISE_METHOD_MAP[value] || CRUISE_METHOD_MAP.baf_20;
+}
+
+function deriveCruiseTypeFromLegacyBaf(baf) {
+  const target = Number(baf);
+  if (!Number.isFinite(target) || target <= 0) return 'baf_20';
+  const bafMethods = CRUISE_METHODS.filter(method => method.kind === 'baf');
+  let best = bafMethods[0];
+  let bestDiff = Math.abs((best.baf || 20) - target);
+  for (let i = 1; i < bafMethods.length; i++) {
+    const diff = Math.abs((bafMethods[i].baf || 20) - target);
+    if (diff < bestDiff) {
+      best = bafMethods[i];
+      bestDiff = diff;
+    }
+  }
+  return best.value;
+}
+
+function renderCruiseMethodOptions(selectedValue) {
+  const selected = String(selectedValue || '');
+  return CRUISE_METHODS.map(method =>
+    '<option value="' + method.value + '"' + (method.value === selected ? ' selected' : '') + '>' + method.label + '</option>'
+  ).join('');
+}
+
+function getCruiseMethodHelpText(method) {
+  if (!method) return '';
+  if (method.kind === 'fixed') {
+    return method.shortLabel + ' fixed plot. Count trees whose bole center falls within ' + method.plotRadiusFeet.toFixed(1) + ' ft of plot center. Each tree expands by ' + method.expansionFactor + ' trees per acre.';
+  }
+  if (method.kind === 'baf') {
+    return method.shortLabel + ' variable-radius cruise. Count IN trees with prism or angle gauge; each tree contributes basal area by BAF and trees-per-acre by DBH.';
+  }
+  return '100% tally. Measure every tree in the tract. Per-acre values use tract acres from the boundary or the report acres field.';
+}
+
+function getCruiseMethodSummary(method) {
+  if (!method) return '';
+  if (method.kind === 'fixed') {
+    return method.label + ' fixed plot (' + method.plotRadiusFeet.toFixed(1) + ' ft radius)';
+  }
+  if (method.kind === 'baf') {
+    return method.label + ' variable-radius prism cruise';
+  }
+  return method.label;
+}
+
+function getTreeBasalAreaSqFt(dbh) {
+  const dbhNum = Number(dbh) || 0;
+  return 0.005454 * dbhNum * dbhNum;
+}
+
+function getTotalAcresFromPolygonItems(polygons) {
+  let totalAcres = 0;
+  (polygons || []).forEach(item => {
+    try {
+      if (item && item.layer) totalAcres += calcAcres(item.layer);
+    } catch (e) {}
+  });
+  return totalAcres;
+}
+
+function getActiveJobTotalAcres() {
+  return getTotalAcresFromPolygonItems(allPolygons);
+}
+
 function normalizeJobCruiseSettings(job) {
   if (!job) return job;
   if (!LOG_RULES[job.logRule]) job.logRule = 'scribner';
   job.formClass = normalizeFormClass(job.formClass);
   if (!Array.isArray(job.species) || job.species.length === 0) job.species = getDefaultCruiseSpecies();
-  if (!Number.isFinite(Number(job.baf)) || Number(job.baf) <= 0) job.baf = 20;
+  if (!job.cruiseType || !CRUISE_METHOD_MAP[job.cruiseType]) {
+    job.cruiseType = deriveCruiseTypeFromLegacyBaf(job.baf);
+  }
+  const method = getCruiseMethod(job.cruiseType);
+  if (method.kind === 'baf') {
+    job.baf = method.baf;
+  } else if (!Number.isFinite(Number(job.baf)) || Number(job.baf) <= 0) {
+    job.baf = 20;
+  }
   return job;
 }
 
@@ -3164,15 +3258,132 @@ let tallySelProduct = 'sawtimber';
 let tallySelDBH = 14;
 let tallySelLogs = 2;
 let tallySelHeight = 50;
+let tallyPlotGuideLayer = null;
 
 // â”€â”€ Get cruise config for active job â”€â”€
 function getJobCruiseConfig() {
   const job = normalizeJobCruiseSettings(allJobs.find(j => j.id === activeJobId));
+  const method = getCruiseMethod(job && job.cruiseType);
   return {
+    cruiseType: method.value,
+    method: method,
     baf: (job && job.baf) || 20,
+    expansionFactor: method.expansionFactor || null,
+    plotRadiusFeet: method.plotRadiusFeet || null,
+    kind: method.kind,
     logRule: (job && job.logRule) || 'scribner',
     formClass: normalizeFormClass(job && job.formClass),
     species: (job && job.species) || getDefaultCruiseSpecies()
+  };
+}
+
+function getReportCruiseConfig(job) {
+  const reportSel = document.getElementById('report-cruise-type');
+  const cruiseType = reportSel && reportSel.value ? reportSel.value : ((job && job.cruiseType) || deriveCruiseTypeFromLegacyBaf(job && job.baf));
+  const method = getCruiseMethod(cruiseType);
+  return {
+    cruiseType: method.value,
+    method: method,
+    baf: method.baf || ((job && job.baf) || 20),
+    expansionFactor: method.expansionFactor || null,
+    plotRadiusFeet: method.plotRadiusFeet || null,
+    kind: method.kind
+  };
+}
+
+function getTreeExpansionFactor(tree, cruiseConfig, totalAcres) {
+  const method = (cruiseConfig && cruiseConfig.method) || getCruiseMethod(cruiseConfig && cruiseConfig.cruiseType);
+  if (!tree || !method) return 0;
+  if (method.kind === 'baf') return calcTPA(method.baf || 20, tree.dbh);
+  if (method.kind === 'fixed') return method.expansionFactor || 0;
+  return totalAcres > 0 ? (1 / totalAcres) : 1;
+}
+
+function getTreeCruiseMetrics(tree, cruiseConfig, rule, formClass, totalAcres) {
+  const rp = getReportProduct(tree);
+  const tpa = getTreeExpansionFactor(tree, cruiseConfig, totalAcres);
+  const ba = getTreeBasalAreaSqFt(tree.dbh) * tpa;
+  const rawVol = rp === 'pulpwood'
+    ? pulpwoodTons(tree.dbh, tree.logs || 1)
+    : sawtimberVol(tree.dbh, tree.logs, rule, formClass);
+  return {
+    product: rp,
+    tpa: tpa,
+    ba: ba,
+    rawVol: rawVol,
+    volume: rawVol * tpa
+  };
+}
+
+function getCruisePlotDivisor(cruiseConfig, plotCount) {
+  return (cruiseConfig && cruiseConfig.kind) === 'full' ? 1 : Math.max(plotCount || 0, 1);
+}
+
+function buildCruiseStats(plots, cruiseConfig, rule, formClass, totalAcres) {
+  const allDonePlots = (plots || []).filter(plot => plot && plot.completed);
+  const divisor = getCruisePlotDivisor(cruiseConfig, allDonePlots.length);
+  const speciesStats = {};
+  let totalTreeCount = 0;
+
+  allDonePlots.forEach(plot => {
+    (plot.trees || []).forEach(tree => {
+      totalTreeCount++;
+      const metrics = getTreeCruiseMetrics(tree, cruiseConfig, rule, formClass, totalAcres);
+      const key = tree.spp + '|' + metrics.product;
+      if (!speciesStats[key]) {
+        speciesStats[key] = {
+          spp: tree.spp,
+          product: metrics.product,
+          baT: 0,
+          tpaT: 0,
+          volT: 0,
+          count: 0,
+          dbhSum: 0,
+          rawVolSum: 0
+        };
+      }
+      speciesStats[key].baT += metrics.ba;
+      speciesStats[key].tpaT += metrics.tpa;
+      speciesStats[key].volT += metrics.volume;
+      speciesStats[key].count++;
+      speciesStats[key].dbhSum += Number(tree.dbh) || 0;
+      speciesStats[key].rawVolSum += metrics.rawVol;
+    });
+  });
+
+  let totSawBA = 0, totSawTPA = 0, totSawVol = 0;
+  let totCnsBA = 0, totCnsTPA = 0, totCnsVol = 0;
+  let totPulpBA = 0, totPulpTPA = 0, totPulpVol = 0;
+
+  Object.values(speciesStats).forEach(stat => {
+    stat.baAc = stat.baT / divisor;
+    stat.tpaAc = stat.tpaT / divisor;
+    stat.volAc = stat.volT / divisor;
+    stat.avgDbh = stat.count > 0 ? stat.dbhSum / stat.count : 0;
+    stat.avgVolPerTree = stat.count > 0 ? stat.rawVolSum / stat.count : 0;
+    if (stat.product === 'pulpwood') {
+      totPulpBA += stat.baAc; totPulpTPA += stat.tpaAc; totPulpVol += stat.volAc;
+    } else if (stat.product === 'cns') {
+      totCnsBA += stat.baAc; totCnsTPA += stat.tpaAc; totCnsVol += stat.volAc;
+    } else {
+      totSawBA += stat.baAc; totSawTPA += stat.tpaAc; totSawVol += stat.volAc;
+    }
+  });
+
+  return {
+    allDonePlots: allDonePlots,
+    divisor: divisor,
+    totalTreeCount: totalTreeCount,
+    speciesStats: speciesStats,
+    totSawBA: totSawBA,
+    totSawTPA: totSawTPA,
+    totSawVol: totSawVol,
+    totCnsBA: totCnsBA,
+    totCnsTPA: totCnsTPA,
+    totCnsVol: totCnsVol,
+    totPulpBA: totPulpBA,
+    totPulpTPA: totPulpTPA,
+    totPulpVol: totPulpVol
   };
 }
 
@@ -3190,8 +3401,17 @@ function ldPickMeasure(mode) {
 }
 
 function updateLDBar(prefillDBH) {
+  var config = getJobCruiseConfig();
   var inp = document.getElementById('ld-dbh-input');
   if (prefillDBH !== undefined) inp.value = prefillDBH;
+  if (config.kind === 'fixed') {
+    document.getElementById('ld-val').textContent = config.plotRadiusFeet ? config.plotRadiusFeet.toFixed(1) : '--';
+    return;
+  }
+  if (config.kind !== 'baf') {
+    document.getElementById('ld-val').textContent = '--';
+    return;
+  }
   var dbh = parseFloat(inp.value);
   if (!dbh || dbh <= 0) { document.getElementById('ld-val').textContent = '--'; return; }
   var baf = parseFloat(document.getElementById('ld-baf-select').value) || 20;
@@ -3201,13 +3421,119 @@ function updateLDBar(prefillDBH) {
 }
 
 function syncLDBaf() {
-  var jobBaf = String(getJobCruiseConfig().baf);
   var sel = document.getElementById('ld-baf-select');
+  if (!sel) return;
+  var config = getJobCruiseConfig();
+  if (config.kind !== 'baf') return;
+  var jobBaf = String(config.baf);
   sel.value = jobBaf;
 }
 
 function updateLDFromInput() {
   updateLDBar();
+}
+
+function getTallyCruiseContext() {
+  return {
+    plot: tallyPlotId == null ? null : findPlotById(tallyPlotId),
+    cruiseConfig: getJobCruiseConfig(),
+    totalAcres: getActiveJobTotalAcres()
+  };
+}
+
+function formatTallyFactorValue(metrics, cruiseConfig, totalAcres) {
+  if (!metrics) return '';
+  if (cruiseConfig.kind === 'fixed') return String(cruiseConfig.expansionFactor || 0);
+  if (cruiseConfig.kind === 'full' && totalAcres <= 0) return '1';
+  if (metrics.tpa >= 10) return metrics.tpa.toFixed(1);
+  if (metrics.tpa >= 1) return metrics.tpa.toFixed(2);
+  return metrics.tpa.toFixed(3);
+}
+
+function formatTallyBfValue(value) {
+  const num = Number(value) || 0;
+  if (num === 0) return '0';
+  if (num >= 100) return Math.round(num).toLocaleString();
+  if (num >= 10) return num.toFixed(1);
+  return num.toFixed(2);
+}
+
+function formatTallyStatValue(value) {
+  const num = Number(value) || 0;
+  if (num === 0) return '0';
+  if (num >= 100) return Math.round(num).toLocaleString();
+  if (num >= 10) return num.toFixed(1);
+  if (num >= 1) return num.toFixed(2);
+  return num.toFixed(3);
+}
+
+function setTallyVolumeLabels(cruiseConfig, totalAcres, prefersPulp) {
+  const perAcre = cruiseConfig.kind !== 'full' || totalAcres > 0;
+  const volLabel = document.getElementById('tally-vol-lbl');
+  const volHdr = document.getElementById('tally-vol-hdr');
+  if (volHdr) volHdr.textContent = perAcre ? 'Vol/Ac' : 'Volume';
+  if (!volLabel) return;
+  if (prefersPulp) volLabel.textContent = perAcre ? 'GT/Ac' : 'GT';
+  else volLabel.textContent = perAcre ? 'BF/Ac' : 'BF';
+}
+
+function updateTallyMethodUI(plot, cruiseConfig, totalAcres) {
+  const perAcre = cruiseConfig.kind !== 'full' || totalAcres > 0;
+  const baLbl = document.getElementById('tally-ba-lbl');
+  const tpaLbl = document.getElementById('tally-tpa-lbl');
+  const factorHdr = document.getElementById('tally-factor-hdr');
+  const note = document.getElementById('tally-method-note');
+  const ldBar = document.getElementById('ld-bar');
+  const ldLabel = document.getElementById('ld-bar-label');
+  const ldBaf = document.getElementById('ld-baf-select');
+  const ldInput = document.getElementById('ld-dbh-input');
+  const ldDbhUnit = document.getElementById('ld-dbh-unit');
+  const ldEquals = document.getElementById('ld-equals');
+  const ldBottom = document.getElementById('ld-row-bottom');
+
+  if (baLbl) baLbl.textContent = perAcre ? 'BA/Acre' : 'BA Total';
+  if (tpaLbl) tpaLbl.textContent = perAcre ? 'TPA' : 'Trees';
+  if (factorHdr) factorHdr.textContent = cruiseConfig.kind === 'fixed' ? 'Factor' : (perAcre ? 'TPA' : 'Count');
+  setTallyVolumeLabels(cruiseConfig, totalAcres, tallySelProduct === 'pulpwood');
+
+  if (note) {
+    let helpText = getCruiseMethodHelpText(cruiseConfig.method);
+    if (cruiseConfig.kind === 'fixed' && plot) {
+      helpText += ' Plot ' + plot.id + ' is the center point for this radius.';
+    } else if (cruiseConfig.kind === 'full' && totalAcres <= 0) {
+      helpText += ' Tally stats show totals until tract acres are available.';
+    }
+    note.textContent = helpText;
+  }
+
+  if (!ldBar || !ldLabel || !ldBaf || !ldInput || !ldDbhUnit || !ldEquals || !ldBottom) return;
+
+  ldBar.style.display = '';
+  ldLabel.textContent = 'Limiting Dist';
+  ldBaf.style.display = '';
+  ldInput.style.display = '';
+  ldDbhUnit.style.display = '';
+  ldEquals.style.display = '';
+  ldBottom.style.display = '';
+
+  if (cruiseConfig.kind === 'baf') {
+    syncLDBaf();
+    updateLDBar(tallySelDBH);
+    return;
+  }
+
+  if (cruiseConfig.kind === 'fixed') {
+    ldLabel.textContent = 'Plot Radius';
+    ldBaf.style.display = 'none';
+    ldInput.style.display = 'none';
+    ldDbhUnit.style.display = 'none';
+    ldEquals.style.display = 'none';
+    ldBottom.style.display = 'none';
+    document.getElementById('ld-val').textContent = cruiseConfig.plotRadiusFeet ? cruiseConfig.plotRadiusFeet.toFixed(1) : '--';
+    return;
+  }
+
+  ldBar.style.display = 'none';
 }
 
 
@@ -3249,14 +3575,12 @@ function openTallyModal(plotOrId) {
   document.getElementById('tally-btn-pulp').className = 'product-btn';
   document.getElementById('tally-logs-section').style.display = 'block';
   document.getElementById('tally-height-section').style.display = 'none';
-  document.getElementById('tally-vol-lbl').textContent = 'BF/Ac';
 
   tallyBuildDBH();
   tallyBuildLogs();
+  updateTallyMethodUI(plot, config, getActiveJobTotalAcres());
   tallyRenderTable();
   tallyUpdateStats();
-  syncLDBaf();
-  updateLDBar(tallySelDBH);
 
   map.closePopup();
   document.getElementById('tally-overlay').classList.add('open');
@@ -3273,11 +3597,12 @@ function tallyPickProduct(p) {
   document.getElementById('tally-btn-pulp').className = 'product-btn' + (p === 'pulpwood' ? ' sel-pulp' : '');
   document.getElementById('tally-logs-section').style.display = 'block';
   document.getElementById('tally-height-section').style.display = 'none';
-  document.getElementById('tally-vol-lbl').textContent = p === 'pulpwood' ? 'GT/Ac' : 'BF/Ac';
   document.getElementById('tally-logs-label').textContent = p === 'pulpwood' ? '16-ft Pulpwood Logs (RGT16)' : '16-ft Merchantable Logs';
   tallySelDBH = p === 'pulpwood' ? 8 : 14;
   tallyBuildDBH();
   tallyBuildLogs();
+  const ctx = getTallyCruiseContext();
+  updateTallyMethodUI(ctx.plot, ctx.cruiseConfig, ctx.totalAcres);
   tallyUpdateStats();
   updateLDBar(tallySelDBH);
 }
@@ -3372,8 +3697,11 @@ function tallyRemoveTree(i) {
 }
 
 function tallyRenderTable() {
-  const baf = getJobCruiseConfig().baf;
-  const rule = getJobLogRule();
+  const ctx = getTallyCruiseContext();
+  const cruiseConfig = ctx.cruiseConfig;
+  const totalAcres = ctx.totalAcres;
+  const rule = cruiseConfig.logRule || getJobLogRule();
+  const formClass = cruiseConfig.formClass || getJobFormClass();
   document.getElementById('tally-count').textContent = tallyTrees.length;
   const tbody = document.getElementById('tally-tbody');
   if (!tallyTrees.length) {
@@ -3381,15 +3709,14 @@ function tallyRenderTable() {
     return;
   }
   tbody.innerHTML = tallyTrees.map((t, i) => {
-    const tpa = calcTPA(baf, t.dbh);
-    const isPulp = t.product === 'pulpwood';
+    const metrics = getTreeCruiseMetrics(t, cruiseConfig, rule, formClass, totalAcres);
+    const isPulp = metrics.product === 'pulpwood';
     let volDisplay, volUnit;
     if (isPulp) {
-      const tons = pulpwoodTons(t.dbh, t.logs || 1) * tpa;
-      volDisplay = tons.toFixed(2);
+      volDisplay = metrics.volume.toFixed((cruiseConfig.kind === 'full' && totalAcres <= 0) ? 3 : 2);
       volUnit = 'GT';
     } else {
-      volDisplay = Math.round(sawtimberVol(t.dbh, t.logs, rule) * tpa);
+      volDisplay = formatTallyBfValue(metrics.volume);
       volUnit = 'BF';
     }
     const prodLabel = isPulp ? '<span style="color:var(--blue)">PULP</span>' : '<span style="color:var(--accent)">SAW</span>';
@@ -3399,7 +3726,7 @@ function tallyRenderTable() {
       '<td>' + t.dbh + '"</td>' +
       '<td>' + prodLabel + '</td>' +
       '<td>' + logsCell + '</td>' +
-      '<td>' + baf + '</td>' +
+      '<td>' + formatTallyFactorValue(metrics, cruiseConfig, totalAcres) + '</td>' +
       '<td>' + volDisplay + '<span style="font-size:0.55rem;color:var(--text-muted)"> ' + volUnit + '</span></td>' +
       '<td><button class="tally-del" onclick="tallyRemoveTree(' + i + ')">&#x2715;</button></td>' +
     '</tr>';
@@ -3407,24 +3734,28 @@ function tallyRenderTable() {
 }
 
 function tallyUpdateStats() {
-  const baf = getJobCruiseConfig().baf;
-  const rule = getJobLogRule();
+  const ctx = getTallyCruiseContext();
+  const cruiseConfig = ctx.cruiseConfig;
+  const totalAcres = ctx.totalAcres;
+  const perAcre = cruiseConfig.kind !== 'full' || totalAcres > 0;
+  const rule = cruiseConfig.logRule || getJobLogRule();
+  const formClass = cruiseConfig.formClass || getJobFormClass();
   let ba = 0, tpa = 0, sawVol = 0, pulpTons = 0, hasPulp = false, hasSaw = false;
   tallyTrees.forEach(t => {
-    const tp = calcTPA(baf, t.dbh);
-    ba += baf;
-    tpa += tp;
-    if (t.product === 'pulpwood') { pulpTons += pulpwoodTons(t.dbh, t.logs || 1) * tp; hasPulp = true; }
-    else { sawVol += sawtimberVol(t.dbh, t.logs, rule) * tp; hasSaw = true; }
+    const metrics = getTreeCruiseMetrics(t, cruiseConfig, rule, formClass, totalAcres);
+    ba += metrics.ba;
+    tpa += metrics.tpa;
+    if (metrics.product === 'pulpwood') { pulpTons += metrics.volume; hasPulp = true; }
+    else { sawVol += metrics.volume; hasSaw = true; }
   });
-  document.getElementById('tally-ba').textContent = ba;
-  document.getElementById('tally-tpa').textContent = Math.round(tpa);
+  document.getElementById('tally-ba').textContent = formatTallyStatValue(ba);
+  document.getElementById('tally-tpa').textContent = perAcre ? formatTallyStatValue(tpa) : Math.round(tpa);
   if (tallySelProduct === 'pulpwood' || (!hasSaw && hasPulp)) {
-    document.getElementById('tally-vol').textContent = pulpTons.toFixed(2);
-    document.getElementById('tally-vol-lbl').textContent = 'GT/Ac';
+    document.getElementById('tally-vol').textContent = pulpTons.toFixed((cruiseConfig.kind === 'full' && totalAcres <= 0) ? 3 : 2);
+    setTallyVolumeLabels(cruiseConfig, totalAcres, true);
   } else {
-    document.getElementById('tally-vol').textContent = Math.round(sawVol);
-    document.getElementById('tally-vol-lbl').textContent = 'BF/Ac';
+    document.getElementById('tally-vol').textContent = formatTallyBfValue(sawVol);
+    setTallyVolumeLabels(cruiseConfig, totalAcres, false);
   }
 }
 
@@ -3434,6 +3765,7 @@ function tallySavePlot() {
   if (!plot) return;
   plot.trees = JSON.parse(JSON.stringify(tallyTrees));
   plot.completed = true;
+  plot.noTally = false;
   updatePlotMarkerStyle(plot);
   updateStats();
   saveSession();
@@ -3788,7 +4120,7 @@ async function saveCruiseToCloud() {
   if (!fb_user) { toast('Sign in first'); return; }
   if (allPolygons.length === 0 && plotMarkers.length === 0) { toast('Nothing to save'); return; }
 
-  const activeJob = allJobs.find(j => j.id === activeJobId);
+  const activeJob = normalizeJobCruiseSettings(allJobs.find(j => j.id === activeJobId));
   const defaultName = activeJob ? activeJob.name : 'Cruise ' + new Date().toLocaleDateString();
   const name = prompt('Cruise name:', defaultName);
   if (!name) return;
@@ -3801,6 +4133,7 @@ async function saveCruiseToCloud() {
       ownerEmail: getCurrentUserEmail(),
       shareCode: generateShareCode(),
       sharedWith: [],
+      cruiseType: (activeJob && activeJob.cruiseType) || 'baf_20',
       baf: (activeJob && activeJob.baf) || 20,
       logRule: (activeJob && activeJob.logRule) || 'scribner',
       formClass: normalizeFormClass(activeJob && activeJob.formClass),
@@ -3818,10 +4151,6 @@ async function saveCruiseToCloud() {
       plotCount: plotMarkers.length,
       polyCount: allPolygons.length,
       completedCount: plotMarkers.filter(p => p.completed).length,
-      baf: (activeJob && activeJob.baf) || 20,
-      logRule: (activeJob && activeJob.logRule) || 'scribner',
-      formClass: normalizeFormClass(activeJob && activeJob.formClass),
-      species: (activeJob && activeJob.species) || [],
       distUnit: distUnit,
       basemap: currentBasemap
     };
@@ -3937,7 +4266,7 @@ async function manualCloudSync() {
   const btn = document.getElementById('btn-sync');
   btn.classList.add('sync-active');
   btn.classList.remove('sync-pending');
-  const activeJob = allJobs.find(j => j.id === activeJobId);
+  const activeJob = normalizeJobCruiseSettings(allJobs.find(j => j.id === activeJobId));
 
   console.log('[SYNC] Starting. cloudCruiseId=' + (window._activeCloudCruiseId || 'NONE') + ', plots=' + plotMarkers.length + ', completed=' + plotMarkers.filter(p=>p.completed).length);
 
@@ -4009,6 +4338,7 @@ async function manualCloudSync() {
           ownerEmail: getCurrentUserEmail(),
           shareCode: generateShareCode(),
           sharedWith: [],
+          cruiseType: (activeJob && activeJob.cruiseType) || 'baf_20',
           baf: (activeJob && activeJob.baf) || 20,
           logRule: (activeJob && activeJob.logRule) || 'scribner',
           formClass: normalizeFormClass(activeJob && activeJob.formClass),
@@ -4270,6 +4600,7 @@ async function updateCruiseInCloud(cruiseId) {
       plotCount: plotMarkers.length,
       polyCount: allPolygons.length,
       completedCount: plotMarkers.filter(p => p.completed).length,
+      cruiseType: (activeJob && activeJob.cruiseType) || 'baf_20',
       baf: (activeJob && activeJob.baf) || 20,
       logRule: (activeJob && activeJob.logRule) || 'scribner',
       formClass: normalizeFormClass(activeJob && activeJob.formClass),
@@ -4574,6 +4905,7 @@ async function loadCruiseFromCloud(cruiseId, options = {}) {
         name: d.name || 'Cloud Cruise',
         plots: [],
         polygons: [],
+        cruiseType: d.cruiseType || deriveCruiseTypeFromLegacyBaf(d.baf),
         baf: d.baf || 20,
         logRule: d.logRule || 'scribner',
         formClass: normalizeFormClass(d.formClass),
@@ -4587,6 +4919,7 @@ async function loadCruiseFromCloud(cruiseId, options = {}) {
     // Update the local job with current cloud/map data
     localJob.cloudCruiseId = cruiseId;
     localJob.name = d.name || localJob.name;
+    localJob.cruiseType = d.cruiseType || localJob.cruiseType || deriveCruiseTypeFromLegacyBaf(d.baf);
     localJob.baf = d.baf || localJob.baf;
     localJob.logRule = d.logRule || localJob.logRule;
     localJob.formClass = normalizeFormClass(d.formClass || localJob.formClass);
@@ -4600,6 +4933,7 @@ async function loadCruiseFromCloud(cruiseId, options = {}) {
       return { name: p.name, coords: lls.map(ll => [ll.lat, ll.lng]) };
     });
     localJob.updatedAt = Date.now();
+    normalizeJobCruiseSettings(localJob);
     activeJobId = localJob.id;
     updateJobLabel();
 
@@ -5664,9 +5998,13 @@ function initCruiseSetupPanel() {
   const job = normalizeJobCruiseSettings(allJobs.find(j => j.id === activeJobId));
   if (!job) { toast('Create a job first'); return; }
 
-  // Set BAF selector
-  const bafSel = document.getElementById('setup-baf');
-  bafSel.value = job.baf || 20;
+  const cruiseSel = document.getElementById('setup-cruise-type');
+  if (cruiseSel) {
+    cruiseSel.innerHTML = renderCruiseMethodOptions(job.cruiseType);
+    cruiseSel.value = job.cruiseType;
+  }
+  const cruiseNote = document.getElementById('setup-cruise-note');
+  if (cruiseNote) cruiseNote.textContent = getCruiseMethodHelpText(getCruiseMethod(job.cruiseType));
 
   // Set log rule selector
   const ruleSel = document.getElementById('setup-logrule');
@@ -5718,11 +6056,15 @@ function updateJobSpecies() {
   saveSession();
 }
 
-function updateJobBAF(val) {
+function updateJobCruiseType(val) {
   const job = allJobs.find(j => j.id === activeJobId);
   if (!job) return;
-  job.baf = parseInt(val) || 20;
+  job.cruiseType = getCruiseMethod(val).value;
+  const method = getCruiseMethod(job.cruiseType);
+  if (method.kind === 'baf') job.baf = method.baf;
   job.updatedAt = Date.now();
+  const cruiseNote = document.getElementById('setup-cruise-note');
+  if (cruiseNote) cruiseNote.textContent = getCruiseMethodHelpText(method);
   saveSession();
 }
 
@@ -5941,7 +6283,7 @@ function generateCruiseReport() {
   const rPlots = rData.plots;
   const rPolygons = rData.polygons;
 
-  const baf = parseInt(document.getElementById('report-baf').value) || 20;
+  const cruiseConfig = getReportCruiseConfig(job);
   const allDonePlots = rPlots.filter(p => p.completed);
   const n = allDonePlots.length;
   const totalPlotCount = rPlots.length;
@@ -5957,55 +6299,24 @@ function generateCruiseReport() {
   if (manualAcres > 0) {
     totalAcres = manualAcres;
   } else {
-    rPolygons.forEach(p => { try { totalAcres += calcAcres(p.layer); } catch(e) {} });
+    totalAcres = getTotalAcresFromPolygonItems(rPolygons);
+  }
+
+  if (cruiseConfig.kind === 'full' && totalAcres <= 0) {
+    el.innerHTML = '<div class="report-empty"><div class="report-empty-icon">📊</div>Enter tract acres to generate a 100% tally report.</div>';
+    return;
   }
 
   const rule = document.getElementById('report-logrule').value || 'scribner';
   const ruleName = (LOG_RULES[rule] || LOG_RULES.scribner).name;
   const formClass = normalizeFormClass(document.getElementById('report-formclass').value || 78);
   const sawtimberLabel = ruleName + ' FC ' + formClass;
-  const sd = {};
-  let totalTreeCount = 0;
-  allDonePlots.forEach(plot => {
-    (plot.trees || []).forEach(t => {
-      totalTreeCount++;
-      const rp = getReportProduct(t);
-      const key = t.spp + '|' + rp;
-      if (!sd[key]) sd[key] = { spp: t.spp, product: rp, baT: 0, tpaT: 0, volT: 0, count: 0, dbhSum: 0, rawVolSum: 0 };
-      const tp = calcTPA(baf, t.dbh);
-      sd[key].baT += baf;
-      sd[key].tpaT += tp;
-      sd[key].count++;
-      sd[key].dbhSum += t.dbh;
-      if (rp === 'pulpwood') {
-        const treeVol = pulpwoodTons(t.dbh, t.logs || 1);
-        sd[key].volT += treeVol * tp;
-        sd[key].rawVolSum += treeVol;
-      }
-      else {
-        const treeVol = sawtimberVol(t.dbh, t.logs, rule, formClass);
-        sd[key].volT += treeVol * tp;
-        sd[key].rawVolSum += treeVol;
-      }
-    });
-  });
-
-  let totSawBA = 0, totSawTPA = 0, totSawVol = 0;
-  let totCnsBA = 0, totCnsTPA = 0, totCnsVol = 0;
-  let totPulpBA = 0, totPulpTPA = 0, totPulpVol = 0;
-  Object.values(sd).forEach(d => {
-    d.baAc = d.baT / n;
-    d.tpaAc = d.tpaT / n;
-    d.volAc = d.volT / n;
-    d.avgDbh = d.count > 0 ? d.dbhSum / d.count : 0;
-    d.avgVolPerTree = d.count > 0 ? d.rawVolSum / d.count : 0;
-    if (d.product === 'pulpwood') {
-      totPulpBA += d.baAc; totPulpTPA += d.tpaAc; totPulpVol += d.volAc;
-    } else if (d.product === 'cns') {
-      totCnsBA += d.baAc; totCnsTPA += d.tpaAc; totCnsVol += d.volAc;
-    }
-    else { totSawBA += d.baAc; totSawTPA += d.tpaAc; totSawVol += d.volAc; }
-  });
+  const stats = buildCruiseStats(allDonePlots, cruiseConfig, rule, formClass, totalAcres);
+  const sd = stats.speciesStats;
+  const totalTreeCount = stats.totalTreeCount;
+  const totSawBA = stats.totSawBA, totSawTPA = stats.totSawTPA, totSawVol = stats.totSawVol;
+  const totCnsBA = stats.totCnsBA, totCnsTPA = stats.totCnsTPA, totCnsVol = stats.totCnsVol;
+  const totPulpBA = stats.totPulpBA, totPulpTPA = stats.totPulpTPA, totPulpVol = stats.totPulpVol;
 
   const gridSettings = getJobGridSettings(job);
   const spX = gridSettings.spacingX;
@@ -6019,7 +6330,9 @@ function generateCruiseReport() {
   let html = '<div class="report-card">' +
     '<div class="report-card-title">Cruise Summary</div>' +
     '<div class="report-row"><span>Job</span><span class="rval">' + escapeHtml(job.name) + '</span></div>' +
-    '<div class="report-row"><span>BAF</span><span class="rval">' + baf + '</span></div>' +
+    '<div class="report-row"><span>Cruise Method</span><span class="rval">' + escapeHtml(getCruiseMethodSummary(cruiseConfig.method)) + '</span></div>' +
+    (cruiseConfig.kind === 'fixed' ? '<div class="report-row"><span>Expansion Factor</span><span class="rval">' + cruiseConfig.expansionFactor + ' trees/ac</span></div>' : '') +
+    (cruiseConfig.kind === 'baf' ? '<div class="report-row"><span>BAF</span><span class="rval">' + cruiseConfig.baf + '</span></div>' : '') +
     '<div class="report-row"><span>Log Rule</span><span class="rval">' + ruleName + '</span></div>' +
     '<div class="report-row"><span>Form Class</span><span class="rval">' + formClass + '</span></div>' +
     '<div class="report-row"><span>Grid</span><span class="rval">' + spX + ' x ' + spY + ' chains</span></div>' +
@@ -6223,9 +6536,10 @@ function getBoundaryCoordinateText(poly) {
   }).join(' | ');
 }
 
-function getPlotExportSummary(plot, baf, rule, formClass) {
+function getPlotExportSummary(plot, cruiseConfig, rule, formClass, totalAcres) {
   const trees = Array.isArray(plot && plot.trees) ? plot.trees : [];
   let totalTPA = 0;
+  let totalBA = 0;
   let sawBF = 0;
   let cnsBF = 0;
   let pulpTons = 0;
@@ -6234,18 +6548,18 @@ function getPlotExportSummary(plot, baf, rule, formClass) {
   let pulpCount = 0;
 
   trees.forEach(tree => {
-    const tpa = calcTPA(baf, tree.dbh);
-    const rp = getReportProduct(tree);
-    totalTPA += tpa;
-    if (rp === 'pulpwood') {
+    const metrics = getTreeCruiseMetrics(tree, cruiseConfig, rule, formClass, totalAcres);
+    totalTPA += metrics.tpa;
+    totalBA += metrics.ba;
+    if (metrics.product === 'pulpwood') {
       pulpCount++;
-      pulpTons += pulpwoodTons(tree.dbh, tree.logs || 1) * tpa;
-    } else if (rp === 'cns') {
+      pulpTons += metrics.volume;
+    } else if (metrics.product === 'cns') {
       cnsCount++;
-      cnsBF += sawtimberVol(tree.dbh, tree.logs, rule, formClass) * tpa;
+      cnsBF += metrics.volume;
     } else {
       sawCount++;
-      sawBF += sawtimberVol(tree.dbh, tree.logs, rule, formClass) * tpa;
+      sawBF += metrics.volume;
     }
   });
 
@@ -6254,6 +6568,7 @@ function getPlotExportSummary(plot, baf, rule, formClass) {
     sawCount: sawCount,
     cnsCount: cnsCount,
     pulpCount: pulpCount,
+    totalBA: totalBA,
     totalTPA: totalTPA,
     sawBF: sawBF,
     cnsBF: cnsBF,
@@ -6271,7 +6586,7 @@ function exportCruiseCSV() {
   const rPolygons = rData.polygons || [];
   if (!rPlots.length && !rPolygons.length) { toast('No cruise data to export'); return; }
 
-  const baf = parseInt(document.getElementById('report-baf').value) || 20;
+  const cruiseConfig = getReportCruiseConfig(job);
   const rule = document.getElementById('report-logrule').value || 'scribner';
   const ruleName = (LOG_RULES[rule] || LOG_RULES.scribner).name;
   const formClass = normalizeFormClass(document.getElementById('report-formclass').value || 78);
@@ -6289,9 +6604,12 @@ function exportCruiseCSV() {
   if (manualAcres > 0) {
     totalAcres = manualAcres;
   } else {
-    rPolygons.forEach(poly => {
-      try { totalAcres += calcAcres(poly.layer); } catch (e) {}
-    });
+    totalAcres = getTotalAcresFromPolygonItems(rPolygons);
+  }
+
+  if (cruiseConfig.kind === 'full' && totalAcres <= 0) {
+    toast('Enter tract acres in the report panel for 100% tally exports');
+    return;
   }
 
   const cruiserNames = new Set();
@@ -6309,56 +6627,11 @@ function exportCruiseCSV() {
     return label ? (code + ' - ' + label) : code;
   });
 
-  const speciesStats = {};
-  let totSawBA = 0, totSawTPA = 0, totSawVol = 0;
-  let totCnsBA = 0, totCnsTPA = 0, totCnsVol = 0;
-  let totPulpBA = 0, totPulpTPA = 0, totPulpVol = 0;
-
-  allDonePlots.forEach(plot => {
-    (plot.trees || []).forEach(tree => {
-      const rp = getReportProduct(tree);
-      const key = tree.spp + '|' + rp;
-      const tpa = calcTPA(baf, tree.dbh);
-      if (!speciesStats[key]) {
-        speciesStats[key] = {
-          spp: tree.spp,
-          product: rp,
-          baT: 0,
-          tpaT: 0,
-          volT: 0,
-          count: 0
-        };
-      }
-      speciesStats[key].baT += baf;
-      speciesStats[key].tpaT += tpa;
-      speciesStats[key].count++;
-      if (rp === 'pulpwood') {
-        speciesStats[key].volT += pulpwoodTons(tree.dbh, tree.logs || 1) * tpa;
-      } else {
-        speciesStats[key].volT += sawtimberVol(tree.dbh, tree.logs, rule, formClass) * tpa;
-      }
-    });
-  });
-
-  Object.values(speciesStats).forEach(stat => {
-    const plotCount = allDonePlots.length || 1;
-    stat.baAc = stat.baT / plotCount;
-    stat.tpaAc = stat.tpaT / plotCount;
-    stat.volAc = stat.volT / plotCount;
-    if (stat.product === 'pulpwood') {
-      totPulpBA += stat.baAc;
-      totPulpTPA += stat.tpaAc;
-      totPulpVol += stat.volAc;
-    } else if (stat.product === 'cns') {
-      totCnsBA += stat.baAc;
-      totCnsTPA += stat.tpaAc;
-      totCnsVol += stat.volAc;
-    } else {
-      totSawBA += stat.baAc;
-      totSawTPA += stat.tpaAc;
-      totSawVol += stat.volAc;
-    }
-  });
+  const cruiseStats = buildCruiseStats(allDonePlots, cruiseConfig, rule, formClass, totalAcres);
+  const speciesStats = cruiseStats.speciesStats;
+  const totSawBA = cruiseStats.totSawBA, totSawTPA = cruiseStats.totSawTPA, totSawVol = cruiseStats.totSawVol;
+  const totCnsBA = cruiseStats.totCnsBA, totCnsTPA = cruiseStats.totCnsTPA, totCnsVol = cruiseStats.totCnsVol;
+  const totPulpBA = cruiseStats.totPulpBA, totPulpTPA = cruiseStats.totPulpTPA, totPulpVol = cruiseStats.totPulpVol;
 
   const rows = [];
 
@@ -6369,7 +6642,10 @@ function exportCruiseCSV() {
   rows.push(['Created At', formatCsvDateTime(job.createdAt)]);
   rows.push(['Updated At', formatCsvDateTime(job.updatedAt)]);
   rows.push(['Cloud Cruise ID', job.cloudCruiseId || (rJobId === activeJobId ? (window._activeCloudCruiseId || '') : '')]);
-  rows.push(['BAF', baf]);
+  rows.push(['Cruise Method', getCruiseMethodSummary(cruiseConfig.method)]);
+  if (cruiseConfig.kind === 'baf') rows.push(['BAF', cruiseConfig.baf]);
+  if (cruiseConfig.kind === 'fixed') rows.push(['Expansion Factor', cruiseConfig.expansionFactor]);
+  if (cruiseConfig.kind === 'fixed') rows.push(['Plot Radius (ft)', cruiseConfig.plotRadiusFeet.toFixed(1)]);
   rows.push(['Log Rule', ruleName]);
   rows.push(['Form Class', formClass]);
   rows.push(['Sawtimber Volume Basis', sawtimberLabel]);
@@ -6487,7 +6763,7 @@ function exportCruiseCSV() {
     rows.push(['', '', '', '', '', '', '', '', '', '', '', '', '', '']);
   } else {
     rPlots.forEach(plot => {
-      const summary = getPlotExportSummary(plot, baf, rule, formClass);
+      const summary = getPlotExportSummary(plot, cruiseConfig, rule, formClass, totalAcres);
       const status = plot.noTally ? 'No Tally' : (plot.completed ? 'Completed' : 'Pending');
       rows.push([
         plot.id,
@@ -6510,9 +6786,9 @@ function exportCruiseCSV() {
   rows.push([]);
 
   rows.push(['TREES']);
-  rows.push(['Plot_ID', 'Plot_Status', 'Tree_Index', 'Cruiser', 'Species_Code', 'Species_Name', 'Product', 'DBH_in', 'Logs', 'BAF', 'Form_Class', 'TPA', 'BF_per_Acre', 'Tons_per_Acre', 'Volume_Unit', 'Lat', 'Lng']);
+  rows.push(['Plot_ID', 'Plot_Status', 'Tree_Index', 'Cruiser', 'Species_Code', 'Species_Name', 'Product', 'DBH_in', 'Logs', 'Cruise_Method', 'Factor', 'Form_Class', 'TPA', 'BF_per_Acre', 'Tons_per_Acre', 'Volume_Unit', 'Lat', 'Lng']);
   if (!allDonePlots.length) {
-    rows.push(['', 'No completed plots', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+    rows.push(['', 'No completed plots', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']);
   } else {
     allDonePlots.forEach(plot => {
       const status = plot.noTally ? 'No Tally' : 'Completed';
@@ -6527,7 +6803,8 @@ function exportCruiseCSV() {
           '',
           '',
           '',
-          baf,
+          cruiseConfig.method.label,
+          cruiseConfig.kind === 'baf' ? cruiseConfig.baf : (cruiseConfig.kind === 'fixed' ? cruiseConfig.expansionFactor : ''),
           formClass,
           '',
           '',
@@ -6540,11 +6817,11 @@ function exportCruiseCSV() {
       }
 
       (plot.trees || []).forEach((tree, index) => {
-        const tpa = calcTPA(baf, tree.dbh);
-        const rp = getReportProduct(tree);
-        const isPulp = rp === 'pulpwood';
-        const tons = isPulp ? (pulpwoodTons(tree.dbh, tree.logs || 1) * tpa) : 0;
-        const bf = isPulp ? 0 : (sawtimberVol(tree.dbh, tree.logs, rule, formClass) * tpa);
+        const metrics = getTreeCruiseMetrics(tree, cruiseConfig, rule, formClass, totalAcres);
+        const factor = getTreeExpansionFactor(tree, cruiseConfig, totalAcres);
+        const isPulp = metrics.product === 'pulpwood';
+        const tons = isPulp ? metrics.volume : 0;
+        const bf = isPulp ? 0 : metrics.volume;
         rows.push([
           plot.id,
           status,
@@ -6552,12 +6829,13 @@ function exportCruiseCSV() {
           plot.cruiser || '',
           tree.spp || '',
           getSpeciesLabel(tree.spp),
-          rp,
+          metrics.product,
           tree.dbh,
           tree.logs || '',
-          baf,
+          cruiseConfig.method.label,
+          cruiseConfig.kind === 'baf' ? cruiseConfig.baf : (cruiseConfig.kind === 'fixed' ? cruiseConfig.expansionFactor : factor.toFixed(4)),
           formClass,
-          tpa.toFixed(2),
+          metrics.tpa.toFixed(2),
           bf ? bf.toFixed(1) : '',
           tons ? tons.toFixed(2) : '',
           isPulp ? 'GT' : 'BF',
@@ -6594,8 +6872,11 @@ function initReportPanel() {
   _reportJobId = jobSel.value;
 
   const job = normalizeJobCruiseSettings(allJobs.find(j => j.id === _reportJobId));
-  const bafSel = document.getElementById('report-baf');
-  bafSel.value = (job && job.baf) || 20;
+  const cruiseSel = document.getElementById('report-cruise-type');
+  if (cruiseSel) {
+    cruiseSel.innerHTML = renderCruiseMethodOptions(job && job.cruiseType);
+    cruiseSel.value = (job && job.cruiseType) || 'baf_20';
+  }
 
   const ruleSel = document.getElementById('report-logrule');
   ruleSel.value = (job && job.logRule) || 'scribner';
@@ -6620,8 +6901,11 @@ function switchReportJob(jobId) {
   _reportJobId = jobId;
   const job = normalizeJobCruiseSettings(allJobs.find(j => j.id === jobId));
 
-  const bafSel = document.getElementById('report-baf');
-  bafSel.value = (job && job.baf) || 20;
+  const cruiseSel = document.getElementById('report-cruise-type');
+  if (cruiseSel) {
+    cruiseSel.innerHTML = renderCruiseMethodOptions(job && job.cruiseType);
+    cruiseSel.value = (job && job.cruiseType) || 'baf_20';
+  }
   const ruleSel = document.getElementById('report-logrule');
   ruleSel.value = (job && job.logRule) || 'scribner';
   const formClassSel = document.getElementById('report-formclass');
@@ -6666,11 +6950,13 @@ function getReportJobData() {
   return { plots, polygons, isLive: false };
 }
 
-function updateReportBAF(val) {
+function updateReportCruiseType(val) {
   if (_reportJobId === activeJobId) {
     const job = allJobs.find(j => j.id === activeJobId);
     if (job) {
-      job.baf = parseInt(val) || 20;
+      job.cruiseType = getCruiseMethod(val).value;
+      const method = getCruiseMethod(job.cruiseType);
+      if (method.kind === 'baf') job.baf = method.baf;
       job.updatedAt = Date.now();
       saveSession();
     }
@@ -8207,6 +8493,8 @@ async function restoreSession() {
           name: 'Migrated Session',
           plots: oldData.plots || [],
           polygons: oldData.polygons || [],
+          cruiseType: 'baf_20',
+          baf: 20,
           gridSpacingX: 5,
           gridSpacingY: 5,
           gridBearing: 0, gridBuffer: 0.25,
@@ -8337,6 +8625,7 @@ async function createNewJob() {
     name: name.trim(),
     plots: [],
     polygons: [],
+    cruiseType: 'baf_20',
     baf: 20,
     logRule: 'scribner',
     formClass: 78,
@@ -8481,6 +8770,7 @@ async function ensureActiveJob() {
     name: name.trim(),
     plots: [],
     polygons: [],
+    cruiseType: 'baf_20',
     baf: 20,
     logRule: 'scribner',
     formClass: 78,
@@ -8673,8 +8963,8 @@ buildThemeSwatches();
     </div>
     <div class="tally-body">
       <div class="tally-live-stats">
-        <div class="tally-stat"><span class="tally-stat-val" id="tally-ba">0</span><span class="tally-stat-lbl">BA/Acre</span></div>
-        <div class="tally-stat"><span class="tally-stat-val" id="tally-tpa">0</span><span class="tally-stat-lbl">TPA</span></div>
+        <div class="tally-stat"><span class="tally-stat-val" id="tally-ba">0</span><span class="tally-stat-lbl" id="tally-ba-lbl">BA/Acre</span></div>
+        <div class="tally-stat"><span class="tally-stat-val" id="tally-tpa">0</span><span class="tally-stat-lbl" id="tally-tpa-lbl">TPA</span></div>
         <div class="tally-stat"><span class="tally-stat-val" id="tally-vol">0</span><span class="tally-stat-lbl" id="tally-vol-lbl">BF/Ac</span></div>
       </div>
 
@@ -8698,28 +8988,31 @@ buildThemeSwatches();
         <div class="ld-row-top">
           <div class="ld-bar-left">
             <span class="ld-bar-icon">&#x1F4CF;</span>
-            <div class="ld-bar-label">Limiting Dist</div>
+            <div class="ld-bar-label" id="ld-bar-label">Limiting Dist</div>
           </div>
           <div class="ld-input-group">
             <select class="ld-baf-select" id="ld-baf-select" onchange="updateLDFromInput()">
               <option value="5">5</option>
               <option value="10">10</option>
+              <option value="15">15</option>
               <option value="20">20</option>
+              <option value="30">30</option>
               <option value="40">40</option>
             </select>
             <input type="number" class="ld-input" id="ld-dbh-input" inputmode="decimal" step="0.1" min="1" placeholder="DBH" oninput="updateLDFromInput()">
-            <span class="ld-bar-unit">"</span>
-            <span class="ld-equals">=</span>
-            <span class="ld-bar-val" id="ld-val">--</span><span class="ld-bar-unit">ft</span>
+            <span class="ld-bar-unit" id="ld-dbh-unit">"</span>
+            <span class="ld-equals" id="ld-equals">=</span>
+            <span class="ld-bar-val" id="ld-val">--</span><span class="ld-bar-unit" id="ld-result-unit">ft</span>
           </div>
         </div>
-        <div class="ld-row-bottom">
+        <div class="ld-row-bottom" id="ld-row-bottom">
           <div class="ld-measure-toggle">
             <div class="ld-measure-btn ld-sel" id="ld-btn-center" onclick="ldPickMeasure('center')">Center</div>
             <div class="ld-measure-btn" id="ld-btn-face" onclick="ldPickMeasure('face')">Face</div>
           </div>
         </div>
       </div>
+      <div class="field-help" id="tally-method-note" style="margin:4px 2px 12px;"></div>
 
       <div id="tally-logs-section">
         <div class="field-label" id="tally-logs-label">16-ft Merchantable Logs</div>
@@ -8739,7 +9032,7 @@ buildThemeSwatches();
 
       <div class="tally-section-title">Tallied: <span id="tally-count" style="color:var(--text-primary)">0</span> trees</div>
       <table class="tally-table">
-        <thead><tr><th>Spp</th><th>DBH</th><th>Prod</th><th>Logs/Ht</th><th>BA</th><th>Vol/Ac</th><th></th></tr></thead>
+        <thead><tr><th>Spp</th><th>DBH</th><th>Prod</th><th>Logs/Ht</th><th id="tally-factor-hdr">TPA</th><th id="tally-vol-hdr">Vol/Ac</th><th></th></tr></thead>
         <tbody id="tally-tbody"></tbody>
       </table>
 
