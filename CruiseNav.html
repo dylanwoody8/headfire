@@ -4214,11 +4214,23 @@ async function saveCruiseToCloud() {
 }
 
 // â”€â”€ Save this user's plot data to sub-collection â”€â”€
+function getCompletedPlotsForSync() {
+  return plotMarkers
+    .filter(p => p.completed)
+    .map(p => ({
+      id: p.id,
+      lat: p.lat,
+      lng: p.lng,
+      completed: true,
+      trees: cloneJson(p.trees || []),
+      noTally: p.noTally || false
+    }))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
 async function saveUserPlotData(cruiseId) {
   if (!fb_user || !cruiseId) return;
-  const myPlots = plotMarkers
-    .filter(p => p.completed)
-    .map(p => ({ id: p.id, lat: p.lat, lng: p.lng, completed: true, trees: cloneJson(p.trees || []), noTally: p.noTally || false }));
+  const myPlots = getCompletedPlotsForSync();
   console.log('[PUSH] saveUserPlotData: cruiseId=' + cruiseId + ', completedPlots=' + myPlots.length + ', plotIds=' + myPlots.map(p=>p.id).join(',') + ', treeCounts=' + myPlots.map(p=>(p.trees||[]).length).join(','));
 
   try {
@@ -4245,12 +4257,9 @@ let _syncPending = false;
 let _lastSyncedPlotHash = '';
 
 function getPlotHash() {
-  // Hash of all completed plot data to detect changes (including no-tally plots)
-  const data = plotMarkers
-    .filter(p => p.completed)
-    .map(p => p.id + ':' + (p.trees ? p.trees.length : 0) + ':' + (p.noTally ? '1' : '0'))
-    .join(',');
-  return data;
+  // Hash the full completed-plot payload so tree edits are detected
+  // even when the tree count stays the same.
+  return JSON.stringify(getCompletedPlotsForSync());
 }
 
 function setSyncPending(pending) {
