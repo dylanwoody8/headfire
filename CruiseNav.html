@@ -889,27 +889,114 @@
   .product-btn:active { transform: scale(0.97); }
   .product-btn.sel-saw { border-color: var(--accent); color: var(--accent); background: rgba(106,191,75,0.1); }
   .product-btn.sel-pulp { border-color: var(--blue); color: var(--blue); background: rgba(52,152,219,0.1); }
-  .dbh-grid {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 6px;
-    margin-bottom: 14px;
+  .dbh-scroll-wrap {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+    margin-bottom: 12px;
   }
-  .dbh-btn {
+  .dbh-scroll-row {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+  .dbh-scroll-row::-webkit-scrollbar {
+    height: 4px;
+  }
+  .dbh-scroll-row::-webkit-scrollbar-thumb {
+    background: var(--border-bright);
+    border-radius: 999px;
+  }
+  .dbh-chip {
+    flex: 0 0 auto;
+    min-width: 44px;
     background: var(--bg-deep);
     border: 2px solid var(--border);
     border-radius: 8px;
-    padding: 10px 4px;
+    padding: 8px 6px;
     text-align: center;
     cursor: pointer;
     transition: all 0.12s;
     font-family: 'Plus Jakarta Sans', sans-serif;
     font-weight: 800;
-    font-size: 1rem;
+    font-size: 0.92rem;
     color: var(--text-secondary);
     line-height: 1;
+    scroll-snap-align: start;
+    white-space: nowrap;
   }
-  .dbh-btn:active, .dbh-btn.sel { border-color: var(--accent); color: var(--accent); background: rgba(106,191,75,0.1); }
+  .dbh-chip:active,
+  .dbh-chip.sel {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(106,191,75,0.1);
+  }
+  .dbh-scroll-hint {
+    margin-top: 6px;
+    font-size: 0.58rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    text-align: right;
+  }
+  .species-scroll-wrap {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+    margin-bottom: 12px;
+  }
+  .species-scroll-row {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+  .species-scroll-row::-webkit-scrollbar {
+    height: 4px;
+  }
+  .species-scroll-row::-webkit-scrollbar-thumb {
+    background: var(--border-bright);
+    border-radius: 999px;
+  }
+  .tally-species-chip {
+    flex: 0 0 auto;
+    min-width: 48px;
+    background: var(--bg-deep);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.12s;
+    scroll-snap-align: start;
+    white-space: nowrap;
+  }
+  .tally-species-chip:active,
+  .tally-species-chip.sel {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(106,191,75,0.1);
+  }
+  .species-scroll-hint {
+    margin-top: 6px;
+    font-size: 0.58rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    text-align: right;
+  }
   .logs-row {
     display: flex;
     gap: 6px;
@@ -1081,10 +1168,17 @@
     gap: 8px;
     margin-bottom: 16px;
   }
+  .tally-table-wrap {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: auto;
+    max-height: 24dvh;
+    margin-bottom: 14px;
+  }
   .tally-table {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: 14px;
+    margin-bottom: 0;
   }
   .tally-table th {
     font-family: 'JetBrains Mono', monospace;
@@ -1095,6 +1189,10 @@
     padding: 6px 4px;
     border-bottom: 1px solid var(--border);
     text-align: center;
+    position: sticky;
+    top: 0;
+    background: var(--bg-main);
+    z-index: 1;
   }
   .tally-table th:first-child { text-align: left; }
   .tally-table td {
@@ -3288,6 +3386,7 @@ let tallySelProduct = 'sawtimber';
 let tallySelDBH = 14;
 let tallySelLogs = 2;
 let tallySelHeight = 50;
+let tallySelSpecies = '';
 let tallyPlotGuideLayer = null;
 
 // â”€â”€ Get cruise config for active job â”€â”€
@@ -3471,6 +3570,28 @@ function getTallyCruiseContext() {
   };
 }
 
+function getNormalizedSpeciesOption(species) {
+  if (!species) return null;
+  if (typeof species === 'string') {
+    const label = getSpeciesLabel(species) || species;
+    return { code: species, label: label };
+  }
+  const code = species.code || '';
+  if (!code) return null;
+  return {
+    code: code,
+    label: species.label || getSpeciesLabel(code) || code
+  };
+}
+
+function getTallySpeciesOptions() {
+  const config = getJobCruiseConfig();
+  const items = (config.species && config.species.length ? config.species : getDefaultCruiseSpecies())
+    .map(getNormalizedSpeciesOption)
+    .filter(item => item && item.code);
+  return items.length ? items : getDefaultCruiseSpecies().map(getNormalizedSpeciesOption).filter(Boolean);
+}
+
 function formatTallyFactorValue(metrics, cruiseConfig, totalAcres) {
   if (!metrics) return '';
   if (cruiseConfig.kind === 'fixed') return String(cruiseConfig.expansionFactor || 0);
@@ -3588,24 +3709,21 @@ function openTallyModal(plotOrId) {
   document.getElementById('tally-title').textContent = 'Plot ' + plot.id;
 
   const config = getJobCruiseConfig();
-  const sel = document.getElementById('tally-species');
-  sel.innerHTML = '';
-  config.species.forEach(sp => {
-    const o = document.createElement('option');
-    o.value = sp.code;
-    o.textContent = sp.code + ' - ' + (sp.label || sp.code);
-    sel.appendChild(o);
-  });
+  const speciesOptions = (config.species && config.species.length ? config.species : getDefaultCruiseSpecies())
+    .map(getNormalizedSpeciesOption)
+    .filter(item => item && item.code);
 
   tallySelProduct = 'sawtimber';
   tallySelDBH = 14;
   tallySelLogs = 2;
   tallySelHeight = 50;
+  tallySelSpecies = (speciesOptions[0] && speciesOptions[0].code) || 'LP';
   document.getElementById('tally-btn-saw').className = 'product-btn sel-saw';
   document.getElementById('tally-btn-pulp').className = 'product-btn';
   document.getElementById('tally-logs-section').style.display = 'block';
   document.getElementById('tally-height-section').style.display = 'none';
 
+  tallyBuildSpecies();
   tallyBuildDBH();
   tallyBuildLogs();
   updateTallyMethodUI(plot, config, getActiveJobTotalAcres());
@@ -3637,15 +3755,53 @@ function tallyPickProduct(p) {
   updateLDBar(tallySelDBH);
 }
 
+function tallyBuildSpecies() {
+  const row = document.getElementById('tally-species-row');
+  const hint = document.getElementById('tally-species-hint');
+  const speciesOptions = getTallySpeciesOptions();
+  if (!speciesOptions.some(sp => sp.code === tallySelSpecies)) {
+    tallySelSpecies = (speciesOptions[0] && speciesOptions[0].code) || '';
+  }
+  if (row) {
+    row.innerHTML = speciesOptions.map(sp =>
+      '<button type="button" class="tally-species-chip' + (sp.code === tallySelSpecies ? ' sel' : '') + '" data-code="' + sp.code + '" onclick="tallyPickSpecies(\'' + sp.code + '\')">' + sp.code + '</button>'
+    ).join('');
+    const selected = row.querySelector('.tally-species-chip.sel');
+    if (selected && selected.scrollIntoView) {
+      selected.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }
+  }
+  if (hint) {
+    const selectedSpecies = speciesOptions.find(sp => sp.code === tallySelSpecies);
+    hint.textContent = selectedSpecies ? (selectedSpecies.code + ' - ' + selectedSpecies.label) : '';
+  }
+}
+
+function tallyPickSpecies(code) {
+  tallySelSpecies = code;
+  tallyBuildSpecies();
+}
+
 function tallyBuildDBH() {
-  document.getElementById('tally-dbh-grid').innerHTML = DBH_CLASSES.map(d =>
-    '<div class="dbh-btn' + (d === tallySelDBH ? ' sel' : '') + '" data-dbh="' + d + '" onclick="tallyPickDBH(' + d + ')">' + d + '"</div>'
-  ).join('');
+  const row = document.getElementById('tally-dbh-row');
+  const hint = document.getElementById('tally-dbh-hint');
+  if (row) {
+    row.innerHTML = DBH_CLASSES.map(d =>
+      '<button type="button" class="dbh-chip' + (d === tallySelDBH ? ' sel' : '') + '" data-dbh="' + d + '" onclick="tallyPickDBH(' + d + ')">' + d + '"</button>'
+    ).join('');
+    const selected = row.querySelector('.dbh-chip.sel');
+    if (selected && selected.scrollIntoView) {
+      selected.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }
+  }
+  if (hint) {
+    hint.textContent = tallySelDBH > 18 ? 'Swipe left for smaller DBH' : 'Swipe right for larger DBH';
+  }
 }
 
 function tallyPickDBH(d) {
   tallySelDBH = d;
-  document.querySelectorAll('#tally-dbh-grid .dbh-btn').forEach(b => b.classList.toggle('sel', parseInt(b.dataset.dbh) === d));
+  tallyBuildDBH();
   tallyBuildLogs();
   updateLDBar(tallySelDBH);
 }
@@ -3691,7 +3847,8 @@ function tallyPickHeight(h) {
 }
 
 function tallyAddTree() {
-  const spp = document.getElementById('tally-species').value;
+  const speciesOptions = getTallySpeciesOptions();
+  const spp = tallySelSpecies || ((speciesOptions[0] && speciesOptions[0].code) || 'LP');
   const isPulp = tallySelProduct === 'pulpwood';
   const tree = {
     spp: spp,
@@ -9040,9 +9197,10 @@ buildThemeSwatches();
 
       <div class="tally-section-title">Add Tree</div>
 
-      <div class="field-group" style="margin-bottom:12px">
-        <div class="field-label">Species</div>
-        <select class="field-input" id="tally-species"></select>
+      <div class="field-label">Species</div>
+      <div class="species-scroll-wrap">
+        <div class="species-scroll-row" id="tally-species-row"></div>
+        <div class="species-scroll-hint" id="tally-species-hint"></div>
       </div>
 
       <div class="field-label">Product</div>
@@ -9052,7 +9210,10 @@ buildThemeSwatches();
       </div>
 
       <div class="field-label">DBH Class</div>
-      <div class="dbh-grid" id="tally-dbh-grid"></div>
+      <div class="dbh-scroll-wrap">
+        <div class="dbh-scroll-row" id="tally-dbh-row"></div>
+        <div class="dbh-scroll-hint" id="tally-dbh-hint">Swipe right for larger DBH</div>
+      </div>
 
       <div class="ld-bar" id="ld-bar">
         <div class="ld-row-top">
@@ -9101,10 +9262,12 @@ buildThemeSwatches();
       </div>
 
       <div class="tally-section-title">Tallied: <span id="tally-count" style="color:var(--text-primary)">0</span> trees</div>
-      <table class="tally-table">
-        <thead><tr><th>Spp</th><th>DBH</th><th>Prod</th><th>Logs/Ht</th><th id="tally-factor-hdr">TPA</th><th id="tally-vol-hdr">Vol/Ac</th><th></th></tr></thead>
-        <tbody id="tally-tbody"></tbody>
-      </table>
+      <div class="tally-table-wrap">
+        <table class="tally-table">
+          <thead><tr><th>Spp</th><th>DBH</th><th>Prod</th><th>Logs/Ht</th><th id="tally-factor-hdr">TPA</th><th id="tally-vol-hdr">Vol/Ac</th><th></th></tr></thead>
+          <tbody id="tally-tbody"></tbody>
+        </table>
+      </div>
 
       <button class="btn btn-primary" onclick="tallySavePlot()">Save &amp; Close Plot</button>
       <button class="btn btn-secondary" style="margin-top:6px" onclick="tallySaveAndNav()">Save &amp; Navigate Next</button>
