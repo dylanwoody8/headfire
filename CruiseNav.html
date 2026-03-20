@@ -1783,6 +1783,227 @@
     letter-spacing: 1px;
   }
 
+  .inline-check-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+  .inline-check-row input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .help-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10020;
+    background: rgba(4, 10, 5, 0.92);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+  }
+  .help-overlay.open { display: flex; }
+  .help-modal {
+    width: min(980px, 100%);
+    max-height: min(92vh, 920px);
+    background:
+      radial-gradient(circle at top right, rgba(106, 191, 75, 0.14), transparent 28%),
+      linear-gradient(180deg, rgba(18, 32, 18, 0.98), rgba(10, 21, 10, 0.98));
+    border: 1px solid var(--border-bright);
+    border-radius: 18px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.4);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .help-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px 20px 14px;
+    border-bottom: 1px solid rgba(106, 191, 75, 0.16);
+  }
+  .help-eyebrow {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: var(--accent);
+    font-weight: 800;
+    margin-bottom: 6px;
+  }
+  .help-title {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 1.45rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    letter-spacing: -0.4px;
+  }
+  .help-sub {
+    margin-top: 8px;
+    max-width: 760px;
+    font-size: 0.76rem;
+    line-height: 1.7;
+    color: var(--text-secondary);
+  }
+  .help-close {
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    border: 1px solid var(--border-bright);
+    background: rgba(255,255,255,0.03);
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .help-close:active { transform: scale(0.96); }
+  .help-body {
+    padding: 18px 20px 8px;
+    overflow-y: auto;
+  }
+  .help-hero {
+    display: grid;
+    grid-template-columns: minmax(280px, 1.1fr) minmax(240px, 0.9fr);
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .help-hero-card,
+  .help-quickstart {
+    border: 1px solid rgba(106, 191, 75, 0.16);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.03);
+    padding: 14px 16px;
+  }
+  .help-section-title {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 0.92rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+  }
+  .help-hero-copy {
+    font-size: 0.74rem;
+    line-height: 1.75;
+    color: var(--text-secondary);
+  }
+  .help-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .help-chip {
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(106, 191, 75, 0.25);
+    background: rgba(106, 191, 75, 0.08);
+    color: var(--accent-glow);
+    font-size: 0.64rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .help-step-list {
+    display: grid;
+    gap: 10px;
+  }
+  .help-step {
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 10px;
+    align-items: start;
+  }
+  .help-step-num {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--bg-deep);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 800;
+  }
+  .help-step-copy {
+    font-size: 0.72rem;
+    line-height: 1.65;
+    color: var(--text-secondary);
+  }
+  .help-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .help-card {
+    border: 1px solid rgba(106, 191, 75, 0.16);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.02);
+    padding: 14px 16px;
+  }
+  .help-card-title {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .help-card-copy {
+    font-size: 0.71rem;
+    line-height: 1.7;
+    color: var(--text-secondary);
+  }
+  .help-card-copy strong {
+    color: var(--text-primary);
+    font-weight: 700;
+  }
+  .help-note {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(52, 152, 219, 0.08);
+    border: 1px solid rgba(52, 152, 219, 0.2);
+    color: #b9daf1;
+    font-size: 0.7rem;
+    line-height: 1.65;
+  }
+  .help-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 16px 20px 20px;
+    border-top: 1px solid rgba(106, 191, 75, 0.16);
+  }
+  .help-actions {
+    display: flex;
+    gap: 10px;
+    width: 340px;
+    max-width: 100%;
+  }
+  .help-actions .btn { margin: 0; }
+  @media (max-width: 820px) {
+    .help-hero,
+    .help-grid {
+      grid-template-columns: 1fr;
+    }
+    .help-footer {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .help-actions {
+      width: 100%;
+      flex-direction: column;
+    }
+  }
+
   /* Undo toast */
   .toast-undo {
     position: fixed;
@@ -2370,6 +2591,115 @@
     <div class="loading-sub">Loading map tiles...</div>
   </div>
 
+  <div class="help-overlay" id="help-overlay" onclick="if(event.target===this)dismissHelpGuide()">
+    <div class="help-modal">
+      <div class="help-header">
+        <div>
+          <div class="help-eyebrow">CruiseNav Field Guide</div>
+          <div class="help-title">How to use CruiseNav from start to finish</div>
+          <div class="help-sub">This guide covers the full field workflow: create a job, draw boundaries, build a cruise, tally trees, navigate, correct mistakes, sync data, and print reports. You can reopen it anytime from More -> Help Guide.</div>
+        </div>
+        <button class="help-close" type="button" onclick="dismissHelpGuide()" aria-label="Close help">&#x2715;</button>
+      </div>
+      <div class="help-body" id="help-body">
+        <div class="help-hero">
+          <div class="help-hero-card">
+            <div class="help-section-title">What CruiseNav is built for</div>
+            <div class="help-hero-copy">CruiseNav is designed to let you build a tract, cruise it in the field, correct tallies later if needed, and produce a report without bouncing between separate apps. Most work starts in <strong>Jobs</strong>, <strong>More</strong>, and the map itself.</div>
+            <div class="help-chip-row">
+              <div class="help-chip">Boundaries</div>
+              <div class="help-chip">Plots</div>
+              <div class="help-chip">Tallying</div>
+              <div class="help-chip">Navigation</div>
+              <div class="help-chip">Reports</div>
+              <div class="help-chip">Cloud Sync</div>
+            </div>
+          </div>
+          <div class="help-quickstart">
+            <div class="help-section-title">Quick Start</div>
+            <div class="help-step-list">
+              <div class="help-step">
+                <div class="help-step-num">1</div>
+                <div class="help-step-copy">Open <strong>Jobs</strong> and create or select the tract you want to work on.</div>
+              </div>
+              <div class="help-step">
+                <div class="help-step-num">2</div>
+                <div class="help-step-copy">Open <strong>More</strong> to draw boundaries, place plots, edit shapes, or open cruise setup.</div>
+              </div>
+              <div class="help-step">
+                <div class="help-step-num">3</div>
+                <div class="help-step-copy">Set the cruise type, species, log rule, and form class in <strong>Cruise Setup</strong>.</div>
+              </div>
+              <div class="help-step">
+                <div class="help-step-num">4</div>
+                <div class="help-step-copy">Tap a plot on the map to tally trees, mark no tally, or navigate to it.</div>
+              </div>
+              <div class="help-step">
+                <div class="help-step-num">5</div>
+                <div class="help-step-copy">Use <strong>Report</strong> for stand, stock, and notice-style volume summaries, then print or export.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="help-grid">
+          <div class="help-card">
+            <div class="help-card-title">Jobs</div>
+            <div class="help-card-copy"><strong>Jobs</strong> are your tracts. Keep each tract in its own job so boundaries, plots, tallies, cruise settings, and reports stay together. Switching jobs swaps the whole tract in and out of the map.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-card-title">Boundaries and Shapes</div>
+            <div class="help-card-copy">Use <strong>More -> Draw Boundary</strong> to sketch one or more polygons. Use <strong>Edit Shapes</strong> to reshape them later. In the cruise-grid panel you can now delete one polygon at a time if a tract has multiple boundaries and one needs to be removed completely.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-card-title">Plots and Cruise Grid</div>
+            <div class="help-card-copy">Generate a grid from your selected boundaries or place individual plots manually. The <strong>Plots</strong> tab helps move through pending points, while <strong>List</strong> gives a faster plot-by-plot view when you need to jump around or review status.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-card-title">Cruise Setup</div>
+            <div class="help-card-copy">Choose the cruise method that matches the tract: fixed-area, BAF, or 100% tally. This panel also controls species, log rule, and Girard form class, which feed directly into tally logic and the final report.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-card-title">Tallying Trees</div>
+            <div class="help-card-copy">Tap a plot to open the tally screen. Pick species, product, DBH class, and log count, then add the tree. If a plot has no tally trees, mark it <strong>No Tally</strong> so the plot still counts as completed. You can reopen completed plots later to delete or correct trees.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-card-title">GPS and Navigation</div>
+            <div class="help-card-copy">Use the <strong>GPS</strong> tab to follow your location and navigate to the active plot. <strong>Phone Compass</strong> uses the device heading. <strong>Walking Direction</strong> waits until you start moving, then points using your travel direction, which works better on Android devices with poor compasses.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-card-title">Reports</div>
+            <div class="help-card-copy">The <strong>Report</strong> panel now builds a notice-style timber report with tract summary tables, grouped volume summaries, and log-distribution tables by product and DBH. Make sure tract acres, cruise method, log rule, and form class are correct before printing.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-card-title">Cloud Sync and Sharing</div>
+            <div class="help-card-copy">Use <strong>Cloud Sync & Sharing</strong> to back up jobs, share a cruise, or pull field edits back into the office. Sync after important edits, especially if you corrected trees or changed job settings after the field day.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-card-title">Editing and Fixing Mistakes</div>
+            <div class="help-card-copy">You can edit polygons, delete individual boundaries, reopen plots, remove trees, and retally corrected trees. Completed plot edits now count as real changes during sync so corrected office edits do not get overwritten by older cloud data.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-card-title">Extra Tools</div>
+            <div class="help-card-copy">The app also includes shapefile import/export, GeoJSON export, GeoPDF export for Avenza, optional parcel lookup layers, theme colors, and cloud sharing tools from the <strong>More</strong> panel.</div>
+          </div>
+        </div>
+
+        <div class="help-note">Field tip: the fastest normal workflow is <strong>Jobs -> More -> Draw Boundary / Cruise Setup -> Grid / Place Plot -> GPS -> Tally -> Report</strong>. If you ever forget where something lives, open <strong>More -> Help Guide</strong> and this walkthrough will come back.</div>
+      </div>
+      <div class="help-footer">
+        <label class="inline-check-row">
+          <input type="checkbox" id="help-show-on-start" onchange="setHelpGuideShowOnStart(this.checked)">
+          Show this guide on startup
+        </label>
+        <div class="help-actions">
+          <button class="btn btn-secondary" type="button" onclick="dismissHelpGuide()">Close</button>
+          <button class="btn btn-primary" type="button" onclick="dismissHelpGuide()">Start Cruising</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Top Bar -->
   <div class="topbar">
     <div class="app-title">CruiseNav<small id="active-job-label">No Job</small></div>
@@ -2624,6 +2954,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
       <div class="settings-card-label">Cruise Setup</div>
     </div>
+    <div class="settings-card" onclick="closePanel(); openHelpGuide()">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 1 1 5.8 1c0 2-3 2-3 4"/><line x1="12" y1="17" x2="12" y2="17.5"/></svg>
+      <div class="settings-card-label">Help Guide</div>
+    </div>
   </div>
   <button class="btn btn-secondary" onclick="closePanel(); importShapefile()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,5 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -2652,6 +2986,14 @@
       <option value="movement">Walking Direction</option>
     </select>
     <div class="field-help">Walking Direction waits until you start moving, then points using your travel direction instead of the phone compass.</div>
+  </div>
+  <div class="field-group">
+    <div class="field-label">Help Guide</div>
+    <label class="inline-check-row">
+      <input type="checkbox" id="settings-help-show-on-start" onchange="setHelpGuideShowOnStart(this.checked)">
+      Show guide on startup
+    </label>
+    <div class="field-help">Use the Help Guide tile above to reopen the full walkthrough at any time.</div>
   </div>
   <button class="btn btn-danger" onclick="clearEverything()">Clear All Data</button>
   <div class="theme-picker">
@@ -7950,6 +8292,51 @@ function closePanel() {
   currentPanel = null;
 }
 
+const HELP_GUIDE_STARTUP_KEY = 'cruisenav-help-show-on-start-v1';
+
+function getHelpGuideShowOnStart() {
+  try {
+    const saved = localStorage.getItem(HELP_GUIDE_STARTUP_KEY);
+    return saved == null ? true : saved === '1';
+  } catch (e) {
+    return true;
+  }
+}
+
+function syncHelpGuideToggleState() {
+  const show = getHelpGuideShowOnStart();
+  const helpCb = document.getElementById('help-show-on-start');
+  const settingsCb = document.getElementById('settings-help-show-on-start');
+  if (helpCb) helpCb.checked = show;
+  if (settingsCb) settingsCb.checked = show;
+  return show;
+}
+
+function setHelpGuideShowOnStart(show, opts) {
+  try {
+    localStorage.setItem(HELP_GUIDE_STARTUP_KEY, show ? '1' : '0');
+  } catch (e) {}
+  syncHelpGuideToggleState();
+  if (!opts || !opts.silent) {
+    toast(show ? 'Help guide will open on startup' : 'Help guide hidden on startup');
+  }
+}
+
+function openHelpGuide() {
+  syncHelpGuideToggleState();
+  const overlay = document.getElementById('help-overlay');
+  if (!overlay) return;
+  overlay.classList.add('open');
+  const body = document.getElementById('help-body');
+  if (body) body.scrollTop = 0;
+}
+
+function dismissHelpGuide() {
+  const overlay = document.getElementById('help-overlay');
+  if (!overlay) return;
+  overlay.classList.remove('open');
+}
+
 // â”€â”€ Draw boundary (crosshair mode) â”€â”€
 let drawPoints = [];
 let drawPreviewLayer = null;
@@ -9913,6 +10300,8 @@ function buildThemeSwatches() {
 buildThemeSwatches();
 
 (async function init() {
+  syncHelpGuideToggleState();
+
   // Try restoring a previous session
   const restored = await restoreSession().catch(() => false);
   if (restored) {
@@ -9929,6 +10318,9 @@ buildThemeSwatches();
     const ls = document.getElementById('loading-screen');
     ls.classList.add('hidden');
     setTimeout(() => ls.remove(), 500);
+    setTimeout(() => {
+      if (getHelpGuideShowOnStart()) openHelpGuide();
+    }, 180);
   }, 600);
 })();
 
