@@ -79,18 +79,32 @@
   }
 
   .app-title {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
     font-family: 'Plus Jakarta Sans', sans-serif;
     font-weight: 800;
     font-size: 1.05rem;
     color: var(--accent);
     letter-spacing: -0.5px;
+  }
+  .app-brand {
+    flex-shrink: 0;
     white-space: nowrap;
   }
   .app-title small {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-weight: 500;
     font-size: 0.72rem;
     color: var(--text-muted);
-    margin-left: 6px;
     letter-spacing: 1px;
     text-transform: uppercase;
   }
@@ -107,6 +121,7 @@
   .topbar-actions {
     display: flex;
     gap: 6px;
+    flex-shrink: 0;
   }
 
   .icon-btn {
@@ -1509,6 +1524,16 @@
 
   @media (max-width: 768px) {
     .topbar-stats { display: none; }
+    .topbar { gap: 6px; }
+    .app-title {
+      font-size: 0.98rem;
+      gap: 5px;
+    }
+    .app-title small {
+      font-size: 0.64rem;
+      letter-spacing: 0.7px;
+    }
+    .topbar-actions { gap: 4px; }
   }
 
   /* Leaflet custom marker styles */
@@ -2702,7 +2727,7 @@
 
   <!-- Top Bar -->
   <div class="topbar">
-    <div class="app-title">CruiseNav<small id="active-job-label">No Job</small></div>
+    <div class="app-title"><span class="app-brand">CruiseNav</span><small id="active-job-label">No Job</small></div>
     <div class="topbar-stats">
       <div>Plots: <span class="val" id="stat-plots">0/0</span></div>
       <div>Acres: <span class="val" id="stat-acres">0</span></div>
