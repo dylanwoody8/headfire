@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>ForestDraw — GIS Sketch Tool</title>
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7448559955982078" crossorigin="anonymous"></script>
 
@@ -23,16 +23,20 @@
     --cream: #f5f0e8;
     --sand: #e8dfc8;
     --ink: #111;
+    --app-height: 100vh;
+    --mobile-bottom-offset: 0px;
+    --mobile-toolbar-height: 0px;
   }
 
   body {
     font-family: 'Space Mono', monospace;
     background: var(--forest);
     color: var(--cream);
-    height: 100vh;
+    height: var(--app-height);
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    padding-bottom: 0;
   }
 
   header {
@@ -117,6 +121,8 @@
   #map {
     flex: 1;
     width: 100%;
+    position: relative;
+    min-height: 0;
   }
 
   .status-bar {
@@ -913,25 +919,31 @@
     background: var(--bark);
     border-top: 2px solid var(--lime);
     z-index: 1000;
-    padding-bottom: env(safe-area-inset-bottom, 0);
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--mobile-bottom-offset) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -8px 18px rgba(0,0,0,0.28);
+    backdrop-filter: blur(10px);
   }
   .mob-tools {
     display: flex;
-    height: 68px;
+    height: 62px;
   }
   .mob-btn {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 5px;
+    gap: 4px;
     flex: 1;
     background: none;
     border: none;
     border-top: 2px solid transparent;
     color: var(--sand);
     font-family: 'Space Mono', monospace;
-    font-size: 0.5rem;
+    font-size: 0.46rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     cursor: pointer;
@@ -939,10 +951,96 @@
     -webkit-tap-highlight-color: transparent;
     transition: color 0.1s, border-color 0.1s, background 0.1s;
   }
-  .mob-btn svg { width: 24px; height: 24px; stroke: currentColor; flex-shrink: 0; }
+  .mob-btn svg { width: 21px; height: 21px; stroke: currentColor; flex-shrink: 0; }
   .mob-btn.active       { color: var(--lime); border-top-color: var(--lime); }
   .mob-btn.mob-locate   { color: #64b5f6; }
   .mob-btn.mob-locate.active { color: #fff; background: #1565c0; border-top-color: #2196f3; }
+  .mob-btn.mob-gps { color: #f7c66a; }
+  .mob-btn.mob-gps.active { color: #fff; background: #c77700; border-top-color: #f59e0b; }
+
+  .draw-hint {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    display: none;
+    padding: 8px 12px;
+    background: rgba(26, 58, 42, 0.94);
+    border: 1px solid var(--lime);
+    color: var(--cream);
+    font-size: 0.66rem;
+    text-align: center;
+    max-width: calc(100% - 24px);
+    pointer-events: none;
+  }
+  .draw-hint.active { display: block; }
+  #crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 999;
+    pointer-events: none;
+    display: none;
+  }
+  #crosshair.active { display: block; }
+  #draw-controls {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 1000;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+  }
+  #draw-controls.active { display: flex; }
+  .draw-point-count {
+    background: rgba(26, 58, 42, 0.94);
+    border: 1px solid var(--lime);
+    color: var(--lime);
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 5px 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+  }
+  .draw-btn-row {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+  .draw-btn {
+    flex: 1;
+    border: 1px solid var(--leaf);
+    background: rgba(61, 43, 31, 0.96);
+    color: var(--cream);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 12px 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  .draw-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .draw-btn-drop {
+    background: var(--lime);
+    border-color: var(--lime);
+    color: var(--forest);
+  }
+  .draw-btn-cancel {
+    border-color: #c0392b;
+    color: #e74c3c;
+  }
 
   /* ── Slide-up More drawer ─────────────────────────────────────────── */
   .mob-overlay {
@@ -956,12 +1054,14 @@
 
   .mob-drawer {
     position: fixed;
-    bottom: 0; left: 0; right: 0;
+    bottom: calc(var(--mobile-bottom-offset) + env(safe-area-inset-bottom, 0px)); left: 0; right: 0;
     background: var(--bark2);
     border-top: 2px solid var(--lime);
     z-index: 1999;
     padding: 18px 16px;
     padding-bottom: calc(18px + env(safe-area-inset-bottom, 0));
+    max-height: calc(var(--app-height, 100vh) - 60px);
+    overflow-y: auto;
     transform: translateY(100%);
     transition: transform 0.22s ease;
   }
@@ -1009,6 +1109,8 @@
     header { padding: 0 16px; height: 46px; }
     .logo span { display: none; }
 
+    body { padding-bottom: calc(var(--mobile-toolbar-height) + 8px); }
+
     /* Hide desktop toolbar and status bar */
     .toolbar { display: none; }
     .status-bar { display: none; }
@@ -1017,13 +1119,20 @@
     .mobile-bar { display: flex; }
 
     /* Cruise panel: full width below header, scrollable if tall */
-    .cruise-panel { right: 8px; left: 8px; width: auto; top: 52px; max-height: calc(100vh - 130px); overflow-y: auto; }
+    .cruise-panel { right: 8px; left: 8px; width: auto; top: 52px; max-height: calc(var(--app-height, 100vh) - 130px - var(--mobile-toolbar-height)); overflow-y: auto; }
+    .gps-panel { right: 8px; left: 8px; width: auto; top: 52px; max-height: calc(var(--app-height, 100vh) - 130px - var(--mobile-toolbar-height)); }
+    .layer-panel { left: 8px; right: 8px; width: auto; top: 52px; max-height: calc(var(--app-height, 100vh) - 130px - var(--mobile-toolbar-height)); }
+    .parcel-panel { right: 8px; left: 8px; width: auto; bottom: calc(var(--mobile-toolbar-height) + 10px); max-height: calc(var(--app-height, 100vh) - 170px - var(--mobile-toolbar-height)); }
 
     /* Export modal: full width */
     .export-modal { width: calc(100vw - 32px); left: 16px; transform: translateY(-50%); }
 
+    .draw-hint { top: 8px; font-size: 0.62rem; }
+    #draw-controls { bottom: 10px; left: 8px; right: 8px; }
+    .draw-btn { padding: 11px 6px; font-size: 0.62rem; }
+
     /* Drop overlay: between header and mobile bar */
-    .drop-overlay { top: 46px; bottom: 68px; }
+    .drop-overlay { top: 46px; bottom: calc(var(--mobile-toolbar-height) + 4px); }
   }
 </style>
 </head>
@@ -1181,7 +1290,30 @@
   <button class="btn-clear-grid" onclick="cancelGeoPDFMode()">Cancel</button>
 </div>
 
-<div id="map"></div>
+<div id="map">
+  <div class="draw-hint" id="draw-hint">Pan map to place the crosshair, then tap Drop Point.</div>
+  <div id="crosshair">
+    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="32" y1="2" x2="32" y2="24" stroke="white" stroke-width="2.5" stroke-opacity="0.95"/>
+      <line x1="32" y1="40" x2="32" y2="62" stroke="white" stroke-width="2.5" stroke-opacity="0.95"/>
+      <line x1="2" y1="32" x2="24" y2="32" stroke="white" stroke-width="2.5" stroke-opacity="0.95"/>
+      <line x1="40" y1="32" x2="62" y2="32" stroke="white" stroke-width="2.5" stroke-opacity="0.95"/>
+      <circle cx="32" cy="32" r="5" fill="#8bc34a" stroke="rgba(0,0,0,0.6)" stroke-width="1.5"/>
+      <circle cx="32" cy="32" r="2" fill="white"/>
+    </svg>
+  </div>
+  <div id="draw-controls">
+    <div class="draw-point-count" id="draw-point-count">0 points - need 3 to finish</div>
+    <div class="draw-btn-row">
+      <button class="draw-btn" onclick="undoCrosshairPoint()">Undo</button>
+      <button class="draw-btn draw-btn-drop" onclick="dropCrosshairPoint()">Drop Point</button>
+      <button class="draw-btn" id="draw-finish-btn" onclick="finishCrosshairDraw()" disabled>Finish</button>
+    </div>
+    <div class="draw-btn-row">
+      <button class="draw-btn draw-btn-cancel" onclick="cancelCrosshairDraw()">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <!-- Parcel info panel -->
 <div class="parcel-panel" id="parcel-panel">
@@ -1207,6 +1339,10 @@
     <button class="mob-btn mob-locate" id="mob-btn-locate" onclick="toggleLocate()">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7" stroke-opacity="0.4"/></svg>
       Locate
+    </button>
+    <button class="mob-btn mob-gps" id="mob-btn-gps" onclick="toggleGpsPanel()">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>
+      GPS
     </button>
     <button class="mob-btn" id="mob-btn-polygon" onclick="startDraw('polygon')">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><polygon points="12,2 22,20 2,20"/></svg>
@@ -1268,7 +1404,7 @@
   <div class="splash-card">
     <div class="splash-logo">ForestDraw <small>GIS Sketch Tool</small></div>
     <div class="splash-subtitle">
-      Draw stand boundaries, import shapefiles, generate cruise grids, and export georeferenced PDFs for Avenza Maps. Built for foresters in the field.
+      Draw and stream field features, walk tract boundaries with live GPS, import shapefiles, generate cruise grids, and export GIS-ready data for the field.
     </div>
 
     <div class="splash-section">
@@ -1278,11 +1414,11 @@
       </div>
       <div class="splash-item">
         <span class="splash-key">Polygon</span>
-        <div class="splash-desc">Click points to draw a stand boundary. Double-click or click the first point to close. Acreage calculates automatically.</div>
+        <div class="splash-desc">Click points to draw a stand boundary on desktop. On mobile, pan the map under the crosshair and tap Drop Point. Acreage calculates automatically.</div>
       </div>
       <div class="splash-item">
         <span class="splash-key">Line</span>
-        <div class="splash-desc">Draw roads, streams, or property lines. Click to add vertices, double-click to finish.</div>
+        <div class="splash-desc">Draw roads, streams, or property lines. Desktop uses tap/click vertices; mobile uses the center crosshair with Drop Point controls.</div>
       </div>
       <div class="splash-item">
         <span class="splash-key">Point</span>
@@ -1291,6 +1427,29 @@
       <div class="splash-item">
         <span class="splash-key">Edit</span>
         <div class="splash-desc">Toggle edit mode to drag vertices and reshape existing features. Click Edit again to save changes.</div>
+      </div>
+    </div>
+
+    <div class="splash-section">
+      <div class="splash-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>
+        GPS Field Capture
+      </div>
+      <div class="splash-item">
+        <span class="splash-key">Start</span>
+        <div class="splash-desc">Open GPS Capture, name the feature, and choose Point, Line, or Polygon. Use this to walk property boundaries, roads, ponds, streams, or landmark points directly from your device location.</div>
+      </div>
+      <div class="splash-item">
+        <span class="splash-key">Logging</span>
+        <div class="splash-desc">Choose Every Fix, Distance, or Time logging. Distance mode is built for field mapping jobs like dropping a vertex every 15 or 30 feet while walking a tract line.</div>
+      </div>
+      <div class="splash-item">
+        <span class="splash-key">Pause</span>
+        <div class="splash-desc">Pause one GPS feature, start another, then resume the original later. For example, you can pause a tract boundary, map a pond, and go right back to the boundary session.</div>
+      </div>
+      <div class="splash-item">
+        <span class="splash-key">Accuracy</span>
+        <div class="splash-desc">The map shows your live blue-dot position, accuracy ring, and current GPS accuracy while you capture. Each GPS session keeps its latest accuracy for export.</div>
       </div>
     </div>
 
@@ -1305,7 +1464,7 @@
       </div>
       <div class="splash-item">
         <span class="splash-key">Export .SHP</span>
-        <div class="splash-desc">Export drawn features, cruise points, and/or imported layers as a zipped shapefile bundle. DBF attributes are preserved on re-export.</div>
+        <div class="splash-desc">Export drawn features, GPS-captured points/lines/polygons, cruise points, and/or imported layers as a zipped shapefile bundle. GPS exports keep session attributes like feature name, capture source, logging method, and latest accuracy.</div>
       </div>
     </div>
 
@@ -1369,11 +1528,7 @@
       </div>
       <div class="splash-item">
         <span class="splash-key">Locate Me</span>
-        <div class="splash-desc">Uses your device GPS to show a blue dot with accuracy ring on the map. Great for ground-truthing in the field.</div>
-      </div>
-      <div class="splash-item">
-        <span class="splash-key">GPS Capture</span>
-        <div class="splash-desc">Stream GPS points into point, line, or polygon features. Pause one feature, start another, then resume the first. Supports every-fix, distance, and time logging modes.</div>
+        <div class="splash-desc">Uses your device GPS to show a blue dot with accuracy ring on the map, even when you are not actively logging a feature. Great for ground-truthing and checking current field position.</div>
       </div>
       <div class="splash-item">
         <span class="splash-key">Clear</span>
@@ -1596,28 +1751,36 @@ const drawControl = new L.Control.Draw({
 });
 map.addControl(drawControl);
 
-map.on(L.Draw.Event.CREATED, e => {
-  drawnItems.addLayer(e.layer);
-  applyDrawnLayerDefaults(e.layer, {
+function registerCreatedLayer(layer) {
+  drawnItems.addLayer(layer);
+  applyDrawnLayerDefaults(layer, {
     source: 'manual',
     capture: 'manual',
     status: 'finished',
     logMode: 'manual'
   });
-  const st = getDrawnStyle(e.layer);
+  const st = getDrawnStyle(layer);
   // Apply tracked style immediately so it matches imported layer look
-  if (e.layer.setStyle) {
-    e.layer.setStyle({ color: st.color, fillColor: st.fillColor, fillOpacity: st.fillOpacity, weight: st.weight, opacity: 1, fill: st.fillOpacity > 0 });
+  if (layer.setStyle) {
+    layer.setStyle({ color: st.color, fillColor: st.fillColor, fillOpacity: st.fillOpacity, weight: st.weight, opacity: 1, fill: st.fillOpacity > 0 });
   }
   updateCount();
   refreshPolySelect();
   updateAcres();
   refreshLayerPanel();
-  if (e.layer instanceof L.Polygon) {
-    const acres = calcAcres(e.layer);
-    e.layer.bindPopup(`<b>${acres.toFixed(2)} acres</b>`).openPopup();
+  if (layer instanceof L.Polygon) {
+    const acres = calcAcres(layer);
+    layer.bindPopup(`<b>${acres.toFixed(2)} acres</b>`).openPopup();
   }
   notify('Feature added');
+}
+
+map.on(L.Draw.Event.CREATED, e => {
+  if (!['polygon', 'polyline', 'marker'].includes(e.layerType)) return;
+  registerCreatedLayer(e.layer);
+  if (currentHandler) currentHandler = null;
+  clearToolActive();
+  updateActiveToolIndicator();
 });
 
 map.on(L.Draw.Event.EDITED, () => {
@@ -1752,12 +1915,30 @@ function applyDrawnLayerDefaults(layer, overrides = {}) {
 
 // ── Draw tool wrappers ─────────────────────────────────────────────────────
 let currentHandler = null;
+let mobileCrosshairDraw = {
+  active: false,
+  type: null,
+  points: [],
+  previewLayer: null,
+  vertexMarkers: []
+};
 
 function clearToolActive() {
-  document.querySelectorAll('.tool-btn, .mob-btn').forEach(b => b.classList.remove('active'));
+  ['polygon', 'polyline', 'marker'].forEach(type => {
+    const desktopBtn = document.getElementById('btn-' + type);
+    const mobileBtn = document.getElementById('mob-btn-' + type);
+    if (desktopBtn) desktopBtn.classList.remove('active');
+    if (mobileBtn) mobileBtn.classList.remove('active');
+  });
 }
 
 function startDraw(type) {
+  if (mobileCrosshairDraw.active && mobileCrosshairDraw.type === type) {
+    cancelCrosshairDraw();
+    return;
+  }
+
+  if (mobileCrosshairDraw.active) cancelCrosshairDraw({ silent: true, keepToolActive: true });
   if (currentHandler) { currentHandler.disable(); currentHandler = null; }
 
   clearToolActive();
@@ -1765,6 +1946,11 @@ function startDraw(type) {
   const mob = document.getElementById('mob-btn-' + type);
   if (mob) mob.classList.add('active');
   document.getElementById('active-tool').textContent = type.charAt(0).toUpperCase() + type.slice(1);
+
+  if (shouldUseCrosshairDraw(type)) {
+    startCrosshairDraw(type);
+    return;
+  }
 
   const opts = {
     polygon: () => new L.Draw.Polygon(map, { shapeOptions: { color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4 } }),
@@ -1774,16 +1960,130 @@ function startDraw(type) {
 
   currentHandler = opts[type]();
   currentHandler.enable();
+}
 
-  map.once(L.Draw.Event.CREATED, () => {
-    currentHandler = null;
-    clearToolActive();
-    document.getElementById('active-tool').textContent = 'None';
-  });
+function shouldUseCrosshairDraw(type) {
+  if (!['polygon', 'polyline'].includes(type)) return false;
+  return window.matchMedia('(max-width: 768px)').matches || window.matchMedia('(pointer: coarse)').matches;
+}
+
+function startCrosshairDraw(type) {
+  mobileCrosshairDraw.active = true;
+  mobileCrosshairDraw.type = type;
+  mobileCrosshairDraw.points = [];
+  mobileCrosshairDraw.vertexMarkers = [];
+  removeCrosshairPreview();
+  document.getElementById('crosshair').classList.add('active');
+  document.getElementById('draw-controls').classList.add('active');
+  document.getElementById('draw-hint').classList.add('active');
+  document.getElementById('draw-hint').textContent = `Pan map to position the crosshair, then tap Drop Point for the ${type === 'polygon' ? 'boundary' : 'line'}.`;
+  updateCrosshairUI();
+}
+
+function dropCrosshairPoint() {
+  if (!mobileCrosshairDraw.active) return;
+  const center = map.getCenter();
+  const point = L.latLng(center.lat, center.lng);
+  mobileCrosshairDraw.points.push(point);
+
+  const dot = L.circleMarker([point.lat, point.lng], {
+    radius: 5,
+    color: '#fff',
+    fillColor: '#e53935',
+    fillOpacity: 1,
+    weight: 2,
+    interactive: false
+  }).addTo(map);
+  mobileCrosshairDraw.vertexMarkers.push(dot);
+
+  updateCrosshairPreview();
+  updateCrosshairUI();
+}
+
+function undoCrosshairPoint() {
+  if (!mobileCrosshairDraw.active || !mobileCrosshairDraw.points.length) return;
+  mobileCrosshairDraw.points.pop();
+  const dot = mobileCrosshairDraw.vertexMarkers.pop();
+  if (dot) map.removeLayer(dot);
+  updateCrosshairPreview();
+  updateCrosshairUI();
+}
+
+function removeCrosshairPreview() {
+  if (mobileCrosshairDraw.previewLayer) {
+    map.removeLayer(mobileCrosshairDraw.previewLayer);
+    mobileCrosshairDraw.previewLayer = null;
+  }
+}
+
+function updateCrosshairPreview() {
+  removeCrosshairPreview();
+  if (mobileCrosshairDraw.points.length < 2) return;
+  const isPolygon = mobileCrosshairDraw.type === 'polygon';
+  const pts = isPolygon && mobileCrosshairDraw.points.length >= 3
+    ? [...mobileCrosshairDraw.points, mobileCrosshairDraw.points[0]]
+    : mobileCrosshairDraw.points;
+  mobileCrosshairDraw.previewLayer = L.polyline(pts, {
+    color: '#e53935',
+    weight: 3,
+    opacity: 0.9,
+    dashArray: '8 5',
+    interactive: false
+  }).addTo(map);
+}
+
+function updateCrosshairUI() {
+  const countEl = document.getElementById('draw-point-count');
+  const finishBtn = document.getElementById('draw-finish-btn');
+  if (!countEl || !finishBtn) return;
+  const total = mobileCrosshairDraw.points.length;
+  const min = mobileCrosshairDraw.type === 'polygon' ? 3 : 2;
+  if (total < min) {
+    countEl.textContent = `${total} ${total === 1 ? 'point' : 'points'} - need ${min - total} more`;
+  } else {
+    countEl.textContent = `${total} points - ready to finish`;
+  }
+  finishBtn.disabled = total < min;
+}
+
+function finishCrosshairDraw() {
+  if (!mobileCrosshairDraw.active) return;
+  const type = mobileCrosshairDraw.type;
+  const min = type === 'polygon' ? 3 : 2;
+  const points = mobileCrosshairDraw.points.slice();
+  if (points.length < min) {
+    notify(`Need at least ${min} points`);
+    return;
+  }
+
+  const layer = type === 'polygon'
+    ? L.polygon(points, { color: '#e53935', fillOpacity: 0, opacity: 1, fill: false, weight: 4 })
+    : L.polyline(points, { color: '#e53935', opacity: 1, weight: 4 });
+
+  cancelCrosshairDraw({ silent: true });
+  registerCreatedLayer(layer);
+  updateActiveToolIndicator();
+}
+
+function cancelCrosshairDraw(options = {}) {
+  if (!mobileCrosshairDraw.active && !mobileCrosshairDraw.points.length && !mobileCrosshairDraw.vertexMarkers.length) return;
+  removeCrosshairPreview();
+  mobileCrosshairDraw.vertexMarkers.forEach(marker => map.removeLayer(marker));
+  mobileCrosshairDraw.vertexMarkers = [];
+  mobileCrosshairDraw.points = [];
+  mobileCrosshairDraw.active = false;
+  mobileCrosshairDraw.type = null;
+  document.getElementById('crosshair').classList.remove('active');
+  document.getElementById('draw-controls').classList.remove('active');
+  document.getElementById('draw-hint').classList.remove('active');
+  if (!options.keepToolActive) clearToolActive();
+  updateActiveToolIndicator();
+  if (!options.silent) notify('Drawing canceled');
 }
 
 let editEnabled = false;
 function toggleEdit() {
+  if (mobileCrosshairDraw.active) cancelCrosshairDraw({ silent: true });
   editEnabled = !editEnabled;
   document.getElementById('btn-edit').classList.toggle('active', editEnabled);
   document.getElementById('active-tool').textContent = editEnabled ? 'Edit' : 'None';
@@ -1795,8 +2095,9 @@ function toggleEdit() {
 }
 
 function clearAll() {
-  if (!drawnItems.getLayers().length && !gpsSessions.length) return;
+  if (!drawnItems.getLayers().length && !gpsSessions.length && !mobileCrosshairDraw.active) return;
   if (confirm('Clear all features?')) {
+    cancelCrosshairDraw({ silent: true });
     drawnItems.clearLayers();
     drawnFeatureStyles.clear();
     drawnFeatureCounter = 0;
@@ -2434,9 +2735,10 @@ function toggleGpsPanel() {
 
 function syncGpsButtonState() {
   const btn = document.getElementById('btn-gps');
-  if (!btn) return;
+  const mobBtn = document.getElementById('mob-btn-gps');
   const panelOpen = document.getElementById('gps-panel')?.classList.contains('open');
-  btn.classList.toggle('active', panelOpen || !!activeGpsSessionId);
+  if (btn) btn.classList.toggle('active', panelOpen || !!activeGpsSessionId);
+  if (mobBtn) mobBtn.classList.toggle('active', panelOpen || !!activeGpsSessionId);
 }
 
 function updateGpsMethodUI() {
@@ -2791,6 +3093,10 @@ function updateActiveToolIndicator() {
   }
   if (editEnabled) {
     activeTool.textContent = 'Edit';
+    return;
+  }
+  if (mobileCrosshairDraw.active) {
+    activeTool.textContent = getLayerTypeLabel(mobileCrosshairDraw.type);
     return;
   }
   if (currentHandler) return;
@@ -3372,10 +3678,25 @@ function stopLocate() {
 function openMobileMenu() {
   document.getElementById('mob-drawer').classList.add('open');
   document.getElementById('mob-overlay').classList.add('open');
+  updateMobileViewportMetrics();
 }
 function closeMobileMenu() {
   document.getElementById('mob-drawer').classList.remove('open');
   document.getElementById('mob-overlay').classList.remove('open');
+}
+
+function updateMobileViewportMetrics() {
+  const root = document.documentElement;
+  const vv = window.visualViewport;
+  const appHeight = vv ? vv.height : window.innerHeight;
+  const baseHeight = Math.max(window.innerHeight, document.documentElement.clientHeight);
+  const bottomOffset = vv ? Math.max(0, baseHeight - vv.height - vv.offsetTop) : 0;
+  const mobileBar = document.querySelector('.mobile-bar');
+  const toolbarHeight = mobileBar ? Math.round(mobileBar.getBoundingClientRect().height) : 0;
+
+  root.style.setProperty('--app-height', `${Math.round(appHeight)}px`);
+  root.style.setProperty('--mobile-bottom-offset', `${Math.round(bottomOffset)}px`);
+  root.style.setProperty('--mobile-toolbar-height', `${toolbarHeight}px`);
 }
 
 map.on('locationfound', e => {
@@ -4089,6 +4410,14 @@ async function confirmGeoPDFExport() {
   }
 }
 
+window.addEventListener('resize', updateMobileViewportMetrics);
+window.addEventListener('orientationchange', updateMobileViewportMetrics);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', updateMobileViewportMetrics);
+  window.visualViewport.addEventListener('scroll', updateMobileViewportMetrics);
+}
+
+updateMobileViewportMetrics();
 updateGpsMethodUI();
 refreshGpsPanel();
 updateGpsStatus();
