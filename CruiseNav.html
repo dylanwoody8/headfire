@@ -2683,7 +2683,7 @@
     40%, 80% { transform: translateX(8px); }
   }
 
-  #app.locked { display: none !important; }
+  #app.locked { visibility: hidden; pointer-events: none; position: fixed; inset: 0; }
 </style>
 </head>
 <body>
@@ -2718,6 +2718,12 @@
     gate.classList.add('hidden');
     app.classList.remove('locked');
     sessionStorage.setItem('cn_auth', '1');
+    // Leaflet needs to recalculate size after container becomes visible
+    setTimeout(function() {
+      if (typeof map !== 'undefined' && map.invalidateSize) {
+        map.invalidateSize();
+      }
+    }, 100);
   }
 
   // Check if already authenticated this session
